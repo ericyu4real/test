@@ -9,7 +9,7 @@ export function useWebSocket() {
   const streamingMessagesRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8000");
+    const ws = new WebSocket("wss://jserver.jalnyn.dev");
 
     ws.onopen = () => {
       console.log("Connected to WebSocket");

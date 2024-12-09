@@ -46,7 +46,7 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
   const fetchSummary = async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/summary?userId=${localStorage.getItem("userId")}`,
+        `https://jserver.jalnyn.dev/summary?userId=${localStorage.getItem("userId")}`,
         {
           method: "POST",
         },
