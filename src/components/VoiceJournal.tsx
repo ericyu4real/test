@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Timer, Mic, MicOff, BookOpen, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type {
@@ -39,8 +39,130 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastProcessedLengthRef = useRef<number>(0);
+  const isListeningRef = useRef<boolean>(false);
+  const sendMessageRef = useRef(sendMessage);
   const [showSummary, setShowSummary] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
+
+  // Update refs when dependencies change
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
+
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+  }, [sendMessage]);
+
+  useEffect(() => {
+    if (!("webkitSpeechRecognition" in window)) {
+      alert("Speech recognition is not supported in this browser");
+      return;
+    }
+
+    const initializeRecognition = () => {
+      // Clean up existing instance if it exists
+      if (recognitionRef.current) {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
+
+      const SpeechRecognition = window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const fullTranscript = Array.from(event.results)
+          .map((result) => result[0].transcript)
+          .join(" ");
+
+        const newPart = fullTranscript
+          .slice(lastProcessedLengthRef.current)
+          .trim();
+        setCurrentTranscript(newPart);
+
+        if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+        pauseTimeoutRef.current = setTimeout(() => {
+          if (newPart) {
+            const formattedText = formatText(newPart);
+            sendMessageRef.current(formattedText);
+            lastProcessedLengthRef.current = fullTranscript.length;
+            setCurrentTranscript("");
+          }
+        }, 2500);
+      };
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        console.error("Speech recognition error:", event.error);
+        stopTimer();
+      };
+
+      recognition.onend = () => {
+        console.log("Recognition ended");
+        // Only restart if we're still supposed to be listening
+        if (isListeningRef.current) {
+          console.log("Restarting recognition");
+          recognition.start();
+        }
+      };
+
+      recognitionRef.current = recognition;
+    };
+
+    initializeRecognition();
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
+    };
+  }, []); // Empty dependency array is now correct since we use refs
+
+  const startTimer = useCallback((): void => {
+    if (recognitionRef.current) {
+      setTimerActive(true);
+      setIsListening(true);
+      lastProcessedLengthRef.current = 0;
+      recognitionRef.current.start();
+    } else {
+      console.error("Recognition not initialized");
+    }
+  }, []);
+
+  const stopTimer = useCallback((): void => {
+    console.log("Stopping timer");
+    if (recognitionRef.current) {
+      console.log("Aborting recognition");
+      recognitionRef.current.abort();
+    }
+    setTimerActive(false);
+    setIsListening(false);
+    lastProcessedLengthRef.current = 0;
+  }, []);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (timerActive && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft((time) => {
+          if (time <= 1) {
+            stopTimer();
+            onTimerComplete?.();
+          }
+          return time - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [timerActive, timeLeft, stopTimer, onTimerComplete]);
 
   const fetchSummary = async () => {
     try {
@@ -67,122 +189,6 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
     } catch (error) {
       console.error("Error fetching summary:", error);
     }
-  };
-
-  const initializeRecognition = () => {
-    // Clean up existing instance if it exists
-    if (recognitionRef.current) {
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.onerror = null;
-      recognitionRef.current.onend = null;
-      recognitionRef.current.abort();
-      recognitionRef.current = null;
-    }
-
-    const SpeechRecognition = window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const fullTranscript = Array.from(event.results)
-        .map((result) => result[0].transcript)
-        .join(" ");
-
-      const newPart = fullTranscript
-        .slice(lastProcessedLengthRef.current)
-        .trim();
-      setCurrentTranscript(newPart);
-
-      if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
-      pauseTimeoutRef.current = setTimeout(() => {
-        if (newPart) {
-          const formattedText = formatText(newPart);
-          sendMessage(formattedText); // Only change is here - using sendMessage instead of setMessages
-          lastProcessedLengthRef.current = fullTranscript.length;
-          setCurrentTranscript("");
-        }
-      }, 2500);
-    };
-
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error("Speech recognition error:", event.error);
-      stopTimer();
-    };
-
-    recognition.onend = () => {
-      console.log("Recognition ended");
-      // Only restart if we're still supposed to be listening
-      if (isListening) {
-        console.log("Restarting recognition");
-        recognition.start();
-      }
-    };
-
-    recognitionRef.current = recognition;
-  };
-
-  useEffect(() => {
-    if (!("webkitSpeechRecognition" in window)) {
-      alert("Speech recognition is not supported in this browser");
-      return;
-    }
-
-    // Initialize recognition instance
-    initializeRecognition();
-
-    // Cleanup function
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
-      }
-    };
-  }); // Empty dependency array as we only want to initialize once
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (timerActive && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft((time) => {
-          if (time <= 1) {
-            stopTimer();
-            onTimerComplete?.();
-          }
-          return time - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [timerActive, onTimerComplete, timeLeft]);
-
-  const startTimer = (): void => {
-    // Reinitialize recognition to ensure clean state
-    initializeRecognition();
-    setTimerActive(true);
-    setIsListening(true);
-    lastProcessedLengthRef.current = 0;
-    recognitionRef.current?.start();
-  };
-
-  const stopTimer = (): void => {
-    console.log("Stopping timer");
-    if (recognitionRef.current) {
-      console.log("Aborting recognition");
-      // Remove all listeners before aborting
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.onerror = null;
-      recognitionRef.current.onend = null;
-      recognitionRef.current.abort();
-      recognitionRef.current = null;
-    }
-    setTimerActive(false);
-    setIsListening(false);
-    lastProcessedLengthRef.current = 0;
   };
 
   const formatTime = (seconds: number): string => {
