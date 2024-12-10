@@ -3,6 +3,8 @@ export interface Message {
   type: "user" | "assistant";
   content: string;
   timestamp?: Date;
+  isStreaming?: boolean;
+  streamId?: string;
 }
 
 export interface VoiceJournalProps {
@@ -74,7 +76,7 @@ export interface SpeechRecognition extends EventTarget {
   abort: () => void;
 }
 
-interface Summary {
+export interface Summary {
   polishedEntry: string;
   keyPoints: string;
   originalEntries: string[];

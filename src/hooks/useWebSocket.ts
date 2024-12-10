@@ -1,6 +1,6 @@
 // src/hooks/useWebSocket.ts
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { ChatMessage, Message, StreamChunk } from "../types";
+import type { ChatMessage, Message } from "../types";
 
 export function useWebSocket() {
   const [isConnected, setIsConnected] = useState(false);

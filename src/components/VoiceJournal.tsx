@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Timer, Mic, MicOff, BookOpen, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type {
-  Message,
+  Summary,
   VoiceJournalProps,
   SpeechRecognition,
   SpeechRecognitionEvent,
@@ -31,8 +31,7 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
   initialTime = 120,
   onTimerComplete,
 }) => {
-  const { isConnected, messages, streamingMessages, sendMessage } =
-    useWebSocket();
+  const { isConnected, messages, sendMessage } = useWebSocket();
   const [isListening, setIsListening] = useState<boolean>(false);
   const [timeLeft, setTimeLeft] = useState<number>(initialTime);
   const [currentTranscript, setCurrentTranscript] = useState<string>("");
@@ -143,7 +142,7 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
         recognitionRef.current = null;
       }
     };
-  }, []); // Empty dependency array as we only want to initialize once
+  }); // Empty dependency array as we only want to initialize once
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -159,7 +158,7 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [timerActive, onTimerComplete]);
+  }, [timerActive, onTimerComplete, timeLeft]);
 
   const startTimer = (): void => {
     // Reinitialize recognition to ensure clean state
