@@ -1,152 +1,195 @@
+// src/components/VoiceJournal.tsx
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { createModel, KaldiRecognizer, Model } from "vosk-browser";
+import { RecognizerMessage } from "vosk-browser/dist/interfaces";
 import { Timer, Mic, MicOff, BookOpen, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import type {
-  Summary,
-  VoiceJournalProps,
-  SpeechRecognition,
-  SpeechRecognitionEvent,
-  SpeechRecognitionErrorEvent,
-} from "../types";
-import { useWebSocket } from "../hooks/useWebSocket";
 import { SlideOver } from "@/components/SlideOver";
+import { useWebSocket } from "../hooks/useWebSocket";
+import { Summary } from "@/types";
 
 const formatText = (text: string): string => {
   let formatted = text.trim();
   if (formatted.length === 0) return formatted;
-
   formatted = formatted.charAt(0).toUpperCase() + formatted.slice(1);
-
   const lastChar = formatted.slice(-1);
   if (!/[.!?]$/.test(lastChar)) {
     formatted += ".";
   }
-
   return formatted;
 };
 
-const VoiceJournal: React.FC<VoiceJournalProps> = ({
+interface VoiceJournalProps {
+  initialTime?: number;
+  onTimerComplete?: () => void;
+}
+
+export default function VoiceJournal({
   initialTime = 120,
   onTimerComplete,
-}) => {
+}: VoiceJournalProps) {
+  const [recognizer, setRecognizer] = useState<KaldiRecognizer>();
+  const [model, setModel] = useState<Model>();
+  const [error, setError] = useState<string | null>(null);
+  const [currentText, setCurrentText] = useState<string>("");
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const { isConnected, messages, sendMessage } = useWebSocket();
-  const [isListening, setIsListening] = useState<boolean>(false);
-  const [timeLeft, setTimeLeft] = useState<number>(initialTime);
-  const [currentTranscript, setCurrentTranscript] = useState<string>("");
-  const [timerActive, setTimerActive] = useState<boolean>(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastProcessedLengthRef = useRef<number>(0);
-  const isListeningRef = useRef<boolean>(false);
-  const sendMessageRef = useRef(sendMessage);
+  const pendingTextRef = useRef<string>("");
+
+  // Timer and control states
+  const [isListening, setIsListening] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(initialTime);
+  const [timerActive, setTimerActive] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
-
-  // Update refs when dependencies change
-  useEffect(() => {
-    isListeningRef.current = isListening;
-  }, [isListening]);
+  const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastProcessedLengthRef = useRef<number>(0);
 
   useEffect(() => {
-    sendMessageRef.current = sendMessage;
-  }, [sendMessage]);
+    const initializeModel = async () => {
+      try {
+        const loadedModel = await createModel(
+          "/models/vosk-model-small-en-us-0.15.tar.gz",
+        );
+        setModel(loadedModel);
 
-  useEffect(() => {
-    if (!("webkitSpeechRecognition" in window)) {
-      alert("Speech recognition is not supported in this browser");
-      return;
-    }
+        const rec = new loadedModel.KaldiRecognizer(48000);
+        rec.setWords(true);
 
-    const initializeRecognition = () => {
-      // Clean up existing instance if it exists
-      if (recognitionRef.current) {
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
-      }
-
-      const SpeechRecognition = window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-
-      recognition.continuous = true;
-      recognition.interimResults = true;
-
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        const fullTranscript = Array.from(event.results)
-          .map((result) => result[0].transcript)
-          .join(" ");
-
-        const newPart = fullTranscript
-          .slice(lastProcessedLengthRef.current)
-          .trim();
-        setCurrentTranscript(newPart);
-
-        if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
-        pauseTimeoutRef.current = setTimeout(() => {
-          if (newPart) {
-            const formattedText = formatText(newPart);
-            sendMessageRef.current(formattedText);
-            lastProcessedLengthRef.current = fullTranscript.length;
-            setCurrentTranscript("");
+        rec.on("result", (message: RecognizerMessage) => {
+          if (message.event === "error") {
+            console.error("Recognition error:", message.error);
+            setError(message.error);
+            return;
           }
-        }, 2500);
-      };
 
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error("Speech recognition error:", event.error);
-        stopTimer();
-      };
+          if (message.event === "result") {
+            setError(null);
+            const text = message.result.text;
+            if (text) {
+              pendingTextRef.current += " " + text;
+              setCurrentText(pendingTextRef.current.trim());
+            }
+          }
+        });
 
-      recognition.onend = () => {
-        console.log("Recognition ended");
-        // Only restart if we're still supposed to be listening
-        if (isListeningRef.current) {
-          console.log("Restarting recognition");
-          recognition.start();
+        rec.on("partialresult", (message: RecognizerMessage) => {
+          if (
+            message.event === "partialresult" &&
+            message.result.partial.trim()
+          ) {
+            // Only proceed if partial has content
+            console.log("partial", message.result.partial);
+            // Show the current partial result
+            setCurrentText(
+              pendingTextRef.current + " " + message.result.partial,
+            );
+
+            // Reset timer since we're getting speech
+            if (pauseTimeoutRef.current) {
+              clearTimeout(pauseTimeoutRef.current);
+            }
+
+            pauseTimeoutRef.current = setTimeout(() => {
+              if (pendingTextRef.current) {
+                const formattedText = formatText(pendingTextRef.current);
+                sendMessage(formattedText);
+                pendingTextRef.current = ""; // Reset only after sending
+                setCurrentText("");
+              }
+            }, 1500);
+          }
+        });
+
+        setRecognizer(rec);
+      } catch (error) {
+        console.error("Error initializing model:", error);
+        setError("Failed to initialize speech recognition model");
+      }
+    };
+
+    initializeModel();
+
+    return () => {
+      model?.terminate();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      audioContextRef.current?.close();
+      if (pauseTimeoutRef.current) {
+        clearTimeout(pauseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const startListening = async () => {
+    if (!recognizer) return;
+
+    try {
+      audioContextRef.current = new AudioContext({
+        sampleRate: 48000,
+        latencyHint: "interactive",
+      });
+
+      await audioContextRef.current.audioWorklet.addModule(
+        "/audio-processor.js",
+      );
+
+      streamRef.current = await navigator.mediaDevices.getUserMedia({
+        video: false,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 48000,
+        },
+      });
+
+      const source = audioContextRef.current.createMediaStreamSource(
+        streamRef.current,
+      );
+      workletNodeRef.current = new AudioWorkletNode(
+        audioContextRef.current,
+        "audio-processor",
+      );
+
+      workletNodeRef.current.port.onmessage = (event) => {
+        const { samples } = event.data;
+        if (samples.length > 0) {
+          const buffer = audioContextRef.current!.createBuffer(
+            1,
+            samples.length,
+            48000,
+          );
+          buffer.getChannelData(0).set(samples);
+          recognizer.acceptWaveform(buffer);
         }
       };
 
-      recognitionRef.current = recognition;
-    };
+      source.connect(workletNodeRef.current);
+      workletNodeRef.current.connect(audioContextRef.current.destination);
 
-    initializeRecognition();
-
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
-      }
-    };
-  }, []); // Empty dependency array is now correct since we use refs
-
-  const startTimer = useCallback((): void => {
-    if (recognitionRef.current) {
-      setTimerActive(true);
       setIsListening(true);
-      lastProcessedLengthRef.current = 0;
-      recognitionRef.current.start();
-    } else {
-      console.error("Recognition not initialized");
+      setTimerActive(true);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      setError("Failed to access microphone");
     }
-  }, []);
+  };
 
-  const stopTimer = useCallback((): void => {
-    console.log("Stopping timer");
-    if (recognitionRef.current) {
-      console.log("Aborting recognition");
-      recognitionRef.current.abort();
+  const stopListening = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
     }
-    setTimerActive(false);
+    workletNodeRef.current?.disconnect();
     setIsListening(false);
-    lastProcessedLengthRef.current = 0;
-  }, []);
+    setTimerActive(false);
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+    }
+    lastProcessedLengthRef.current = 0; // Reset the processed length
+  };
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -154,7 +197,7 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
       interval = setInterval(() => {
         setTimeLeft((time) => {
           if (time <= 1) {
-            stopTimer();
+            stopListening();
             onTimerComplete?.();
           }
           return time - 1;
@@ -162,22 +205,17 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [timerActive, timeLeft, stopTimer, onTimerComplete]);
+  }, [timerActive, timeLeft, onTimerComplete]);
 
   const fetchSummary = async () => {
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/summary?userId=${localStorage.getItem("userId")}`,
-        {
-          method: "POST",
-        },
+        { method: "POST" },
       );
       if (!response.ok) throw new Error("Failed to fetch summary");
       const data = await response.json();
-
-      // Parse the response - assumes the OpenAI response has a specific format
       const [polishedEntry, keyPoints] = data.summary.split("\n\n");
-
       setSummary({
         polishedEntry,
         keyPoints,
@@ -188,6 +226,7 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
       setShowSummary(true);
     } catch (error) {
       console.error("Error fetching summary:", error);
+      setError("Failed to fetch summary");
     }
   };
 
@@ -197,22 +236,20 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Rest of the component remains the same...
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-4">
-      {/* Timer and control buttons */}
       <div className="flex flex-col items-center space-y-4">
         <div className="text-4xl font-bold">{formatTime(timeLeft)}</div>
 
         <button
-          onClick={timerActive ? stopTimer : startTimer}
+          onClick={isListening ? stopListening : startListening}
           className={`px-6 py-3 rounded-full flex items-center space-x-2 ${
-            timerActive
+            isListening
               ? "bg-red-500 hover:bg-red-600"
               : "bg-blue-500 hover:bg-blue-600"
           } text-white transition-colors`}
         >
-          {timerActive ? (
+          {isListening ? (
             <>
               <MicOff className="w-5 h-5" />
               <span>Stop</span>
@@ -224,7 +261,8 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
             </>
           )}
         </button>
-        {timeLeft === 0 && ( // Only show when timer is done
+
+        {timeLeft === 0 && (
           <button
             onClick={fetchSummary}
             className="px-4 py-2 rounded-full flex items-center space-x-2 bg-green-500 hover:bg-green-600 text-white transition-colors"
@@ -241,17 +279,20 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
           </Alert>
         )}
 
-        {isListening && (
+        {error && (
+          <Alert className="bg-red-50 border-red-200">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {isListening && currentText && (
           <Alert className="bg-blue-50 border-blue-200">
             <Timer className="w-4 h-4" />
-            <AlertDescription>
-              Listening... {currentTranscript}
-            </AlertDescription>
+            <AlertDescription>Listening... {currentText}</AlertDescription>
           </Alert>
         )}
       </div>
 
-      {/* Messages */}
       <div className="space-y-4 mt-8">
         {messages.map((message, index) => (
           <div
@@ -271,6 +312,7 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
           </div>
         ))}
       </div>
+
       <SlideOver isOpen={showSummary} onClose={() => setShowSummary(false)}>
         <div className="p-6 space-y-6">
           <div className="flex justify-between items-center">
@@ -294,11 +336,13 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
               <div>
                 <h3 className="font-medium mb-2">Original Entries</h3>
                 <div className="space-y-2">
-                  {summary.originalEntries.map((entry, index) => (
-                    <p key={index} className="text-gray-600">
-                      {entry}
-                    </p>
-                  ))}
+                  {summary.originalEntries.map(
+                    (entry: string, index: number) => (
+                      <p key={index} className="text-gray-600">
+                        {entry}
+                      </p>
+                    ),
+                  )}
                 </div>
               </div>
             </div>
@@ -311,6 +355,4 @@ const VoiceJournal: React.FC<VoiceJournalProps> = ({
       </SlideOver>
     </div>
   );
-};
-
-export default VoiceJournal;
+}

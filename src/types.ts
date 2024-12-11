@@ -81,3 +81,17 @@ export interface Summary {
   keyPoints: string;
   originalEntries: string[];
 }
+
+export interface VoskResult {
+  result: Array<{
+    conf: number;
+    start: number;
+    end: number;
+    word: string;
+  }>;
+  text: string;
+}
+
+export interface VoskResultMessage {
+  result: VoskResult;
+}
