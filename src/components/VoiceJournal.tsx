@@ -48,16 +48,19 @@ export default function VoiceJournal({
   const [summary, setSummary] = useState<Summary | null>(null);
   const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastProcessedLengthRef = useRef<number>(0);
+  const [modelLoading, setModelLoading] = useState(true);
+  const modelLoadingRef = useRef<boolean>(true);
 
   useEffect(() => {
     const initializeModel = async () => {
       try {
+        console.log("Starting model initialization");
         const loadedModel = await createModel(
           "/models/vosk-model-small-en-us-0.15.tar.gz",
         );
         setModel(loadedModel);
 
-        const rec = new loadedModel.KaldiRecognizer(48000);
+        const rec = new loadedModel.KaldiRecognizer(16000);
         rec.setWords(true);
 
         rec.on("result", (message: RecognizerMessage) => {
@@ -82,14 +85,11 @@ export default function VoiceJournal({
             message.event === "partialresult" &&
             message.result.partial.trim()
           ) {
-            // Only proceed if partial has content
             console.log("partial", message.result.partial);
-            // Show the current partial result
             setCurrentText(
               pendingTextRef.current + " " + message.result.partial,
             );
 
-            // Reset timer since we're getting speech
             if (pauseTimeoutRef.current) {
               clearTimeout(pauseTimeoutRef.current);
             }
@@ -98,7 +98,7 @@ export default function VoiceJournal({
               if (pendingTextRef.current) {
                 const formattedText = formatText(pendingTextRef.current);
                 sendMessage(formattedText);
-                pendingTextRef.current = ""; // Reset only after sending
+                pendingTextRef.current = "";
                 setCurrentText("");
               }
             }, 1500);
@@ -106,9 +106,14 @@ export default function VoiceJournal({
         });
 
         setRecognizer(rec);
+        setModelLoading(false);
+        modelLoadingRef.current = false;
+        console.log("Model initialization complete");
       } catch (error) {
         console.error("Error initializing model:", error);
         setError("Failed to initialize speech recognition model");
+        setModelLoading(false);
+        modelLoadingRef.current = false;
       }
     };
 
@@ -116,11 +121,6 @@ export default function VoiceJournal({
 
     return () => {
       model?.terminate();
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      audioContextRef.current?.close();
-      if (pauseTimeoutRef.current) {
-        clearTimeout(pauseTimeoutRef.current);
-      }
     };
   }, []);
 
@@ -129,7 +129,7 @@ export default function VoiceJournal({
 
     try {
       audioContextRef.current = new AudioContext({
-        sampleRate: 48000,
+        sampleRate: 16000,
         latencyHint: "interactive",
       });
 
@@ -142,7 +142,7 @@ export default function VoiceJournal({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 48000,
+          sampleRate: 16000,
         },
       });
 
@@ -160,7 +160,7 @@ export default function VoiceJournal({
           const buffer = audioContextRef.current!.createBuffer(
             1,
             samples.length,
-            48000,
+            16000,
           );
           buffer.getChannelData(0).set(samples);
           recognizer.acceptWaveform(buffer);
@@ -243,10 +243,13 @@ export default function VoiceJournal({
 
         <button
           onClick={isListening ? stopListening : startListening}
+          disabled={modelLoading}
           className={`px-6 py-3 rounded-full flex items-center space-x-2 ${
             isListening
               ? "bg-red-500 hover:bg-red-600"
-              : "bg-blue-500 hover:bg-blue-600"
+              : modelLoading
+                ? "bg-gray-400"
+                : "bg-blue-500 hover:bg-blue-600"
           } text-white transition-colors`}
         >
           {isListening ? (
@@ -257,7 +260,7 @@ export default function VoiceJournal({
           ) : (
             <>
               <Mic className="w-5 h-5" />
-              <span>Start</span>
+              <span>{modelLoading ? "Loading..." : "Start"}</span>
             </>
           )}
         </button>
