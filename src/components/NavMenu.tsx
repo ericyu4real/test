@@ -13,75 +13,110 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Menu } from "lucide-react";
+import { Menu, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { UserNotConfirmedException } from "@aws-sdk/client-cognito-identity-provider";
 
 export function NavMenu() {
-  const { signOut, signIn, verifyCode, error, isAuthenticated, isLoading } =
-    useAuth();
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [signingIn, setSigningIn] = useState(false);
+  const {
+    isAuthenticated,
+    isLoading,
+    error,
+    setError,
+    signIn,
+    signUp,
+    signOut,
+    confirmSignUp,
+    resendConfirmationCode,
+  } = useAuth();
 
-  const handleSignIn = async () => {
+  const [isSignUp, setIsSignUp] = useState(true);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmationCode, setConfirmationCode] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  const [storedPassword, setStoredPassword] = useState(""); // Store password for auto-login after confirmation
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username || !password) {
+      setError("Please fill in all fields");
+      return;
+    }
+
     try {
-      setSigningIn(true);
-      await signIn(phoneNumber);
-      setIsVerifying(true);
+      setIsProcessing(true);
+      if (isSignUp) {
+        await signUp(username, password);
+        setStoredPassword(password);
+        setNeedsConfirmation(true);
+      } else {
+        await signIn(username, password);
+      }
+    } catch (err) {
+      // Change this part
+      if (err instanceof UserNotConfirmedException) {
+        setStoredPassword(password);
+        setNeedsConfirmation(true);
+      } else {
+        console.error(err);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleConfirmationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!confirmationCode) {
+      setError("Please enter confirmation code");
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      await confirmSignUp(username, confirmationCode, storedPassword);
+      setNeedsConfirmation(false);
+      setConfirmationCode("");
     } catch (err) {
       console.error(err);
     } finally {
-      setSigningIn(false);
+      setIsProcessing(false);
     }
   };
 
-  const handleVerifyCode = async () => {
+  const handleResendCode = async () => {
     try {
-      setSigningIn(true);
-      await verifyCode(verificationCode);
-      setIsVerifying(false);
-      setPhoneNumber("");
-      setVerificationCode("");
+      setIsProcessing(true);
+      await resendConfirmationCode(username);
+      setError("New code has been sent to your email");
     } catch (err) {
       console.error(err);
     } finally {
-      setSigningIn(false);
+      setIsProcessing(false);
     }
   };
 
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/\D/g, "");
-    if (value.length <= 10) {
-      setPhoneNumber(value);
-    }
-  };
-
-  const formatPhoneNumber = (value: string) => {
-    if (value.length <= 3) return value;
-    if (value.length <= 6) return `(${value.slice(0, 3)}) ${value.slice(3)}`;
-    return `(${value.slice(0, 3)}) ${value.slice(3, 6)}-${value.slice(6)}`;
-  };
-
-  const renderAuthenticatedContent = () => (
+  const renderAuthenticatedMenu = () => (
     <>
       <SheetHeader>
         <SheetTitle>Menu</SheetTitle>
       </SheetHeader>
       <div className="flex flex-col h-full">
-        <div className="mt-8 space-y-4 flex-grow">
+        <nav className="mt-8 space-y-4 flex-grow">
           <Button variant="ghost" className="w-full justify-start" asChild>
             <Link href="/">Create Journal</Link>
           </Button>
           <Button variant="ghost" className="w-full justify-start" asChild>
             <Link href="/history">History</Link>
           </Button>
-        </div>
+        </nav>
         <div className="pb-8">
           <Button
             variant="ghost"
             className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50"
-            onClick={signOut}
+            onClick={() => signOut()}
           >
             Sign Out
           </Button>
@@ -90,13 +125,12 @@ export function NavMenu() {
     </>
   );
 
-  const renderSignInContent = () => (
+  const renderAuthContent = () => (
     <>
       <SheetHeader>
-        <SheetTitle>
-          {isVerifying ? "Enter Verification Code" : "Sign In"}
-        </SheetTitle>
+        <SheetTitle>{isSignUp ? "Sign Up" : "Sign In"}</SheetTitle>
       </SheetHeader>
+
       <div className="mt-8 space-y-6">
         {error && (
           <Alert variant="destructive">
@@ -104,59 +138,116 @@ export function NavMenu() {
           </Alert>
         )}
 
-        {!isVerifying ? (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Input
-                type="tel"
-                placeholder="(555) 555-5555"
-                value={formatPhoneNumber(phoneNumber)}
-                onChange={handlePhoneChange}
-                className="w-full"
-              />
-              <p className="text-sm text-gray-500">
-                Enter your phone number to receive a verification code
-              </p>
-            </div>
-            <Button
-              onClick={handleSignIn}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Input
+              type="text"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full"
-              disabled={phoneNumber.length !== 10 || signingIn}
-            >
-              {signingIn ? "Sending..." : "Continue"}
-            </Button>
+            />
+            <Input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full"
+            />
           </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Input
-                type="text"
-                placeholder="Enter verification code"
-                value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value)}
-                maxLength={6}
-                className="w-full"
-              />
-              <p className="text-sm text-gray-500">
-                Enter the 6-digit code sent to your phone
+
+          <Button type="submit" className="w-full" disabled={isProcessing}>
+            {isProcessing ? "Processing..." : isSignUp ? "Sign Up" : "Sign In"}
+          </Button>
+
+          <div className="text-center text-sm text-gray-600">
+            {isSignUp ? (
+              <p>
+                Have an account?{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSignUp(false);
+                    setError(null);
+                  }}
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  Sign In
+                </button>
               </p>
-            </div>
-            <Button
-              onClick={handleVerifyCode}
-              className="w-full"
-              disabled={verificationCode.length !== 6 || signingIn}
-            >
-              {signingIn ? "Verifying..." : "Verify Code"}
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setIsVerifying(false)}
-              className="w-full"
-            >
-              Back
-            </Button>
+            ) : (
+              <p>
+                Don&#39;t have an account?{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSignUp(true);
+                    setError(null);
+                    setUsername("");
+                    setPassword("");
+                  }}
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  Sign Up
+                </button>
+              </p>
+            )}
           </div>
+        </form>
+      </div>
+    </>
+  );
+
+  const renderConfirmationContent = () => (
+    <>
+      <SheetHeader>
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setNeedsConfirmation(false);
+              setError(null);
+            }}
+            className="mr-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <SheetTitle>Verify Account</SheetTitle>
+        </div>
+      </SheetHeader>
+
+      <div className="mt-8 space-y-6">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
+
+        <form onSubmit={handleConfirmationSubmit} className="space-y-4">
+          <Input
+            type="text"
+            placeholder="Enter verification code"
+            value={confirmationCode}
+            onChange={(e) => setConfirmationCode(e.target.value)}
+            className="w-full"
+          />
+
+          <Button type="submit" className="w-full" disabled={isProcessing}>
+            {isProcessing ? "Verifying..." : "Verify Account"}
+          </Button>
+
+          <div className="text-center text-sm text-gray-600">
+            <button
+              type="button"
+              onClick={handleResendCode}
+              disabled={isProcessing}
+              className="text-blue-600 hover:text-blue-800"
+            >
+              Resend code
+            </button>
+          </div>
+        </form>
       </div>
     </>
   );
@@ -169,9 +260,13 @@ export function NavMenu() {
         </div>
       );
     }
-    return isAuthenticated
-      ? renderAuthenticatedContent()
-      : renderSignInContent();
+    if (isAuthenticated) {
+      return renderAuthenticatedMenu();
+    }
+    if (needsConfirmation) {
+      return renderConfirmationContent();
+    }
+    return renderAuthContent();
   };
 
   return (
@@ -181,7 +276,7 @@ export function NavMenu() {
           <Menu className="h-6 w-6" />
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-64">
+      <SheetContent side="left" className="w-[280px]">
         {renderContent()}
       </SheetContent>
     </Sheet>

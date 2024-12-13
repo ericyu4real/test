@@ -1,23 +1,33 @@
-"use client";
 // src/contexts/AuthContext.tsx
+"use client";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import {
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
-  RespondToAuthChallengeCommand,
   GetUserCommand,
+  SignUpCommand,
   NotAuthorizedException,
+  InitiateAuthCommandOutput,
+  UserNotConfirmedException,
+  ResendConfirmationCodeCommand,
+  ConfirmSignUpCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 
 interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
-  phoneNumber: string | null;
-  signIn: (phoneNumber: string) => Promise<void>;
-  verifyCode: (code: string) => Promise<void>;
-  signOut: () => Promise<void>;
   error: string | null;
+  setError: (error: string | null) => void;
+  signIn: (username: string, password: string) => Promise<void>;
+  signUp: (username: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
   getSession: () => string | null;
+  confirmSignUp: (
+    username: string,
+    code: string,
+    password: string,
+  ) => Promise<void>;
+  resendConfirmationCode: (username: string) => Promise<void>;
 }
 
 interface AuthTokens {
@@ -56,7 +66,6 @@ const clearTokens = () => {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tokens, setTokens] = useState<AuthTokens | null>(null);
 
@@ -76,9 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Refresh 5 minutes before expiry
     const refreshTimeout = setTimeout(
-      () => {
-        refreshSession();
-      },
+      () => refreshSession(),
       timeUntilExpiry - 5 * 60 * 1000,
     );
 
@@ -150,75 +157,115 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleSignOut = async () => {
-    clearTokens();
-    setTokens(null);
-    setIsAuthenticated(false);
-    setPhoneNumber(null);
-    setError(null);
-  };
-
-  const signIn = async (phone: string) => {
+  // Add these methods in the AuthProvider
+  const confirmSignUp = async (
+    username: string,
+    code: string,
+    password: string,
+  ) => {
     try {
       setError(null);
-      const formattedPhone = phone.startsWith("+1") ? phone : `+1${phone}`;
-      setPhoneNumber(formattedPhone);
-
-      const command = new InitiateAuthCommand({
-        AuthFlow: "CUSTOM_AUTH",
+      const command = new ConfirmSignUpCommand({
         ClientId: cognitoConfig.clientId,
-        AuthParameters: {
-          USERNAME: formattedPhone,
-        },
+        Username: username,
+        ConfirmationCode: code,
+      });
+
+      await client.send(command);
+      // Auto sign in after confirmation with the provided password
+      await signIn(username, password);
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Confirmation failed";
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    }
+  };
+
+  const resendConfirmationCode = async (username: string) => {
+    try {
+      setError(null);
+      const command = new ResendConfirmationCodeCommand({
+        ClientId: cognitoConfig.clientId,
+        Username: username,
       });
 
       await client.send(command);
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : "An error occurred during sign in";
+        err instanceof Error ? err.message : "Failed to resend code";
       setError(errorMessage);
       throw new Error(errorMessage);
     }
   };
 
-  const verifyCode = async (code: string) => {
-    if (!phoneNumber) {
-      setError("Phone number is missing");
-      return;
-    }
-
+  // Modify signIn to catch UserNotConfirmedException
+  const signIn = async (username: string, password: string) => {
     try {
       setError(null);
-      const command = new RespondToAuthChallengeCommand({
+      const command = new InitiateAuthCommand({
+        AuthFlow: "USER_PASSWORD_AUTH",
         ClientId: cognitoConfig.clientId,
-        ChallengeName: "CUSTOM_CHALLENGE",
-        ChallengeResponses: {
-          USERNAME: phoneNumber,
-          ANSWER: code,
+        AuthParameters: {
+          USERNAME: username,
+          PASSWORD: password,
         },
       });
 
       const response = await client.send(command);
-      const result = response.AuthenticationResult;
-
-      if (result?.AccessToken && result.IdToken && result.RefreshToken) {
-        const newTokens: AuthTokens = {
-          accessToken: result.AccessToken,
-          refreshToken: result.RefreshToken,
-          idToken: result.IdToken,
-          expiresAt: Date.now() + (result.ExpiresIn || 3600) * 1000,
-        };
-        storeTokens(newTokens);
-        setTokens(newTokens);
-        setIsAuthenticated(true);
-      } else {
-        throw new Error("Invalid authentication result");
-      }
+      handleAuthResponse(response);
     } catch (err) {
+      if (err instanceof UserNotConfirmedException) {
+        setError("USER_NOT_CONFIRMED");
+        throw err;
+      }
       const errorMessage =
-        err instanceof Error ? err.message : "Invalid verification code";
+        err instanceof Error ? err.message : "Sign in failed";
       setError(errorMessage);
       throw new Error(errorMessage);
+    }
+  };
+
+  const signUp = async (username: string, password: string) => {
+    try {
+      setError(null);
+      const command = new SignUpCommand({
+        ClientId: cognitoConfig.clientId,
+        Username: username,
+        Password: password,
+      });
+
+      await client.send(command);
+      // Auto sign in after successful signup
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Sign up failed";
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    }
+  };
+
+  const handleSignOut = async () => {
+    clearTokens();
+    setTokens(null);
+    setIsAuthenticated(false);
+    setError(null);
+  };
+
+  const handleAuthResponse = (response: InitiateAuthCommandOutput) => {
+    const result = response.AuthenticationResult;
+    if (result?.AccessToken && result.IdToken && result.RefreshToken) {
+      const newTokens: AuthTokens = {
+        accessToken: result.AccessToken,
+        refreshToken: result.RefreshToken,
+        idToken: result.IdToken,
+        expiresAt: Date.now() + (result.ExpiresIn || 3600) * 1000,
+      };
+      storeTokens(newTokens);
+      setTokens(newTokens);
+      setIsAuthenticated(true);
+    } else {
+      throw new Error("Invalid authentication result");
     }
   };
 
@@ -229,12 +276,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         isAuthenticated,
         isLoading,
-        phoneNumber,
-        signIn,
-        verifyCode,
-        signOut: handleSignOut,
         error,
+        setError,
+        signIn,
+        signUp,
+        signOut: handleSignOut,
         getSession,
+        confirmSignUp,
+        resendConfirmationCode,
       }}
     >
       {children}
