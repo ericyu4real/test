@@ -12,6 +12,7 @@ import {
   ResendConfirmationCodeCommand,
   ConfirmSignUpCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
+import { useRouter } from "next/navigation";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -68,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tokens, setTokens] = useState<AuthTokens | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     checkAuthStatus();
@@ -250,6 +252,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTokens(null);
     setIsAuthenticated(false);
     setError(null);
+    router.push("/"); // Add this line to redirect on sign out
   };
 
   const handleAuthResponse = (response: InitiateAuthCommandOutput) => {

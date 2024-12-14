@@ -100,9 +100,6 @@ export function NavMenu() {
 
   const renderAuthenticatedMenu = () => (
     <>
-      <SheetHeader>
-        <SheetTitle>Menu</SheetTitle>
-      </SheetHeader>
       <div className="flex flex-col h-full">
         <nav className="mt-8 space-y-4 flex-grow">
           <Button variant="ghost" className="w-full justify-start" asChild>
@@ -277,6 +274,7 @@ export function NavMenu() {
         </Button>
       </SheetTrigger>
       <SheetContent side="left" className="w-[280px]">
+        <SheetTitle>Menu</SheetTitle>
         {renderContent()}
       </SheetContent>
     </Sheet>
