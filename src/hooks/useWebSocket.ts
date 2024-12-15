@@ -1,107 +1,107 @@
 // src/hooks/useWebSocket.ts
 import { useState, useEffect, useCallback, useRef } from "react";
+import { io, Socket } from "socket.io-client";
 import type { ChatMessage, Message } from "../types";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function useWebSocket() {
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
-  const wsRef = useRef<WebSocket | null>(null); // Added this line
+  const socketRef = useRef<Socket | null>(null);
   const streamingMessagesRef = useRef<Map<string, string>>(new Map());
+  const { getSession } = useAuth();
 
   useEffect(() => {
-    const ws = new WebSocket(
-      process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000",
+    const token = getSession();
+    console.log(
+      "connecting to ",
+      process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+    );
+    const socket = io(
+      process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+      {
+        auth: { token },
+      },
     );
 
-    ws.onopen = () => {
-      console.log("Connected to WebSocket");
+    socket.on("connect", () => {
+      console.log("Connected to Socket.IO");
       setIsConnected(true);
-    };
+    });
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-
-      // Handle system messages (including userId)
-      if (data.type === "system") {
-        if (data.userId) {
-          localStorage.setItem("userId", data.userId);
-        }
-        return;
-      }
-      if ("chunk" in data) {
-        // Handle streaming chunks
-        const currentContent =
-          (streamingMessagesRef.current.get(data.id) || "") + data.chunk;
-        streamingMessagesRef.current.set(data.id, currentContent);
-
-        setMessages((prev) => {
-          const messageIndex = prev.findIndex(
-            (msg) => msg.type === "assistant" && msg.streamId === data.id,
-          );
-
-          if (messageIndex === -1) {
-            // Create new streaming message
-            return [
-              ...prev,
-              {
-                type: "assistant",
-                content: currentContent,
-                timestamp: new Date(data.timestamp),
-                streamId: data.id,
-                isStreaming: true,
-              },
-            ];
-          }
-
-          // Update existing streaming message
-          const newMessages = [...prev];
-          newMessages[messageIndex] = {
-            ...newMessages[messageIndex],
-            content: currentContent,
-          };
-          return newMessages;
-        });
-      } else {
-        // Handle complete messages
-        const wsMessage = data as ChatMessage;
-        const newMessage: Message = {
-          type: wsMessage.type === "error" ? "assistant" : wsMessage.type,
-          content: wsMessage.content,
-          timestamp: new Date(wsMessage.timestamp),
-        };
-
-        if (wsMessage.type === "assistant") {
-          // Remove streaming message and add complete message
-          setMessages((prev) => {
-            const filteredMessages = prev.filter(
-              (msg) => msg.streamId !== wsMessage.id,
-            );
-            return [...filteredMessages, newMessage];
-          });
-          // Clear from streaming store
-          streamingMessagesRef.current.delete(wsMessage.id);
-        } else {
-          // For user messages, just add them
-          setMessages((prev) => [...prev, newMessage]);
-        }
-      }
-    };
-
-    ws.onclose = () => {
-      console.log("Disconnected from WebSocket");
+    socket.on("disconnect", () => {
+      console.log("Disconnected from Socket.IO");
       setIsConnected(false);
-    };
+    });
 
-    wsRef.current = ws;
+    socket.on("system", (data) => {
+      if (data.userId) {
+        localStorage.setItem("userId", data.userId);
+      }
+    });
+
+    socket.on("chunk", (data) => {
+      const currentContent =
+        (streamingMessagesRef.current.get(data.id) || "") + data.chunk;
+      streamingMessagesRef.current.set(data.id, currentContent);
+
+      setMessages((prev) => {
+        const messageIndex = prev.findIndex(
+          (msg) => msg.type === "assistant" && msg.streamId === data.id,
+        );
+
+        if (messageIndex === -1) {
+          return [
+            ...prev,
+            {
+              type: "assistant",
+              content: currentContent,
+              timestamp: new Date(data.timestamp),
+              streamId: data.id,
+              isStreaming: true,
+            },
+          ];
+        }
+
+        const newMessages = [...prev];
+        newMessages[messageIndex] = {
+          ...newMessages[messageIndex],
+          content: currentContent,
+        };
+        return newMessages;
+      });
+    });
+
+    socket.on("message", (data: ChatMessage) => {
+      const newMessage: Message = {
+        type: data.type === "error" ? "assistant" : data.type,
+        content: data.content,
+        timestamp: new Date(data.timestamp),
+      };
+
+      if (data.type === "assistant") {
+        setMessages((prev) => {
+          const filteredMessages = prev.filter(
+            (msg) => msg.streamId !== data.id,
+          );
+          return [...filteredMessages, newMessage];
+        });
+        streamingMessagesRef.current.delete(data.id);
+      } else {
+        setMessages((prev) => [...prev, newMessage]);
+      }
+    });
+
+    socketRef.current = socket;
 
     return () => {
-      ws.close();
+      socket.disconnect();
     };
   }, []);
 
   const sendMessage = useCallback((content: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(content);
+    if (socketRef.current?.connected) {
+      socketRef.current.emit("message", content);
     }
   }, []);
 

@@ -1,55 +1,75 @@
+// src/components/JournalHistory.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Calendar } from "@/components/ui/calendar";
 import { SlideOver } from "@/components/SlideOver";
 import { format } from "date-fns";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2 } from "lucide-react";
+import { useSummaries } from "@/hooks/useSummaries";
 
-interface HistoryEntry {
-  content: string;
-  timestamp: Date;
-}
+// Helper functions to replace startOfMonth and endOfMonth
+const getFirstDayOfMonth = (date: Date) => {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+};
 
-interface JournalHistoryProps {
-  // We'll expand this later with actual data
-  entries: {
-    [date: string]: HistoryEntry[];
-  };
-}
+const getLastDayOfMonth = (date: Date) => {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+};
 
-export default function JournalHistory({ entries }: JournalHistoryProps) {
+export default function JournalHistory() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [isSlideOverOpen, setIsSlideOverOpen] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const { isLoading, error, fetchSummaries, hasSummary, getSummary } =
+    useSummaries();
 
-  // Function to handle date selection
-  const handleSelect = (date: Date | undefined) => {
-    setSelectedDate(date);
-    if (date) {
-      setIsSlideOverOpen(true);
-    }
-  };
+  useEffect(() => {
+    const start = format(getFirstDayOfMonth(currentMonth), "yyyy-MM-dd");
+    const end = format(getLastDayOfMonth(currentMonth), "yyyy-MM-dd");
+    fetchSummaries(start, end);
+  }, [currentMonth, fetchSummaries]);
 
-  // Function to check if a date has entries
   const hasEntries = (date: Date) => {
     const dateStr = format(date, "yyyy-MM-dd");
-    return !!entries[dateStr]?.length;
+    return hasSummary(dateStr);
   };
 
-  // Get entries for selected date
-  const getSelectedEntries = () => {
-    if (!selectedDate) return [];
+  const getSelectedSummary = () => {
+    if (!selectedDate) return null;
     const dateStr = format(selectedDate, "yyyy-MM-dd");
-    return entries[dateStr] || [];
+    return getSummary(dateStr);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col justify-center h-screen">
+      {error && (
+        <Alert className="mx-auto mb-4 max-w-md">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       <div className="mx-auto p-4 flex w-full flex-row justify-center mb-9">
         <Calendar
           mode="single"
           selected={selectedDate}
-          onSelect={handleSelect}
-          modifiers={{ hasEntry: (date) => hasEntries(date) }}
+          onSelect={(date) => {
+            setSelectedDate(date);
+            if (date) {
+              setIsSlideOverOpen(true);
+            }
+          }}
+          onMonthChange={setCurrentMonth}
+          modifiers={{ hasEntry: hasEntries }}
           modifiersStyles={{
             hasEntry: {
               textDecoration: "underline",
@@ -59,6 +79,7 @@ export default function JournalHistory({ entries }: JournalHistoryProps) {
           className="rounded-md border"
         />
       </div>
+
       <SlideOver
         isOpen={isSlideOverOpen}
         onClose={() => setIsSlideOverOpen(false)}
@@ -67,16 +88,36 @@ export default function JournalHistory({ entries }: JournalHistoryProps) {
           <h2 className="text-lg font-medium mb-4">
             {selectedDate ? format(selectedDate, "MMMM d, yyyy") : ""}
           </h2>
-          <div className="space-y-4">
-            {getSelectedEntries().map((entry, index) => (
-              <div key={index} className="p-4 bg-gray-50 rounded-lg">
-                <div className="text-sm text-gray-500 mb-2">
-                  {format(entry.timestamp, "h:mm a")}
-                </div>
-                <p className="text-gray-700">{entry.content}</p>
+          {getSelectedSummary() ? (
+            <div className="space-y-6">
+              <div>
+                <h3 className="font-medium mb-2">Polished Entry</h3>
+                <p className="text-gray-600">
+                  {getSelectedSummary()?.polishedEntry}
+                </p>
               </div>
-            ))}
-          </div>
+
+              <div>
+                <h3 className="font-medium mb-2">Key Points</h3>
+                <p className="text-gray-600">
+                  {getSelectedSummary()?.keyPoints}
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-medium mb-2">Original Entries</h3>
+                <div className="space-y-2">
+                  {getSelectedSummary()?.originalEntries.map((entry, index) => (
+                    <p key={index} className="text-gray-600">
+                      {entry}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-gray-500">No entries for this date.</p>
+          )}
         </div>
       </SlideOver>
     </div>

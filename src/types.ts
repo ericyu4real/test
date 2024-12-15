@@ -77,6 +77,8 @@ export interface SpeechRecognition extends EventTarget {
 }
 
 export interface Summary {
+  userId: string;
+  date: string;
   polishedEntry: string;
   keyPoints: string;
   originalEntries: string[];

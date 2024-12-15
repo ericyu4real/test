@@ -27,7 +27,7 @@ interface VoiceJournalProps {
 }
 
 export default function VoiceJournal({
-  initialTime = 120,
+  initialTime = 20,
   onTimerComplete,
 }: VoiceJournalProps) {
   const [recognizer, setRecognizer] = useState<KaldiRecognizer>();
@@ -217,6 +217,8 @@ export default function VoiceJournal({
       const data = await response.json();
       const [polishedEntry, keyPoints] = data.summary.split("\n\n");
       setSummary({
+        userId: localStorage.getItem("userId") || "",
+        date: new Date().toISOString().split("T")[0],
         polishedEntry,
         keyPoints,
         originalEntries: messages
