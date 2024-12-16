@@ -1,29 +1,48 @@
-// src/components/JournalHistory.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import { Calendar } from "@/components/ui/calendar";
 import { SlideOver } from "@/components/SlideOver";
-import { format } from "date-fns";
+import { format, addDays, subDays } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2 } from "lucide-react";
 import { useSummaries } from "@/hooks/useSummaries";
+import { useJournalDates } from "@/hooks/useJournalDates";
 import { TimelineView } from "./TimelineView";
 
 export default function JournalHistory() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [isSlideOverOpen, setIsSlideOverOpen] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
 
-  const { isLoading, error, fetchSummaries, hasSummary, summariesMap } =
-    useSummaries();
+  const {
+    isLoading: isSummaryLoading,
+    error: summaryError,
+    fetchSummaries,
+    summariesMap,
+  } = useSummaries();
+  const { markedDates, error: datesError, fetchDates } = useJournalDates();
 
+  // Fetch dates for a larger range initially
+  useEffect(() => {
+    const start = new Date(
+      currentMonth.getFullYear(),
+      currentMonth.getMonth(),
+      1,
+    );
+    const end = new Date(
+      currentMonth.getFullYear(),
+      currentMonth.getMonth() + 1,
+      0,
+    );
+    fetchDates(format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"));
+  }, [fetchDates, currentMonth]);
+
+  // Fetch summaries only when a date is selected
   useEffect(() => {
     if (selectedDate) {
-      const start = new Date(selectedDate);
-      const end = new Date(selectedDate);
-      start.setDate(start.getDate() - 15);
-      end.setDate(end.getDate() + 15);
-
+      const start = subDays(selectedDate, 15);
+      const end = addDays(selectedDate, 15);
       fetchSummaries(format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd"));
     }
   }, [fetchSummaries, selectedDate]);
@@ -36,9 +55,10 @@ export default function JournalHistory() {
   };
 
   const hasEntries = (date: Date) => {
-    const dateStr = format(date, "yyyy-MM-dd");
-    return hasSummary(dateStr);
+    return markedDates.has(format(date, "yyyy-MM-dd"));
   };
+
+  const error = summaryError || datesError;
 
   return (
     <div className="flex flex-col justify-center h-screen">
@@ -51,10 +71,17 @@ export default function JournalHistory() {
       <div
         className={`mx-auto p-4 flex w-full flex-row justify-center mb-9 ${isSlideOverOpen ? "z-[-1] relative" : ""}`}
       >
+        {/* {isDatesLoading ? (
+          <div className="flex items-center justify-center h-[350px] w-[350px]">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        ) : ( */}
         <Calendar
           mode="single"
           selected={selectedDate}
           onSelect={handleDateSelect}
+          month={currentMonth}
+          onMonthChange={setCurrentMonth}
           modifiers={{ hasEntry: hasEntries }}
           modifiersStyles={{
             hasEntry: {
@@ -64,6 +91,7 @@ export default function JournalHistory() {
           }}
           className="rounded-md border"
         />
+        {/* )} */}
       </div>
 
       <SlideOver
@@ -73,7 +101,7 @@ export default function JournalHistory() {
           setSelectedDate(undefined);
         }}
       >
-        {isLoading ? (
+        {isSummaryLoading ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-8 w-8 animate-spin" />
           </div>

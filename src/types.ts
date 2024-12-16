@@ -82,6 +82,7 @@ export interface Summary {
   polishedEntry: string;
   keyPoints: string;
   originalEntries: string[];
+  timestamp?: number;
 }
 
 export interface VoskResult {

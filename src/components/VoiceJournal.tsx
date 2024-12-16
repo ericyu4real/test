@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createModel, KaldiRecognizer, Model } from "vosk-browser";
 import { RecognizerMessage } from "vosk-browser/dist/interfaces";
-import { Timer, Mic, MicOff, BookOpen, X } from "lucide-react";
+import { Timer, Mic, MicOff, BookOpen } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SlideOver } from "@/components/SlideOver";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -28,7 +28,7 @@ interface VoiceJournalProps {
 }
 
 export default function VoiceJournal({
-  initialTime = 10,
+  initialTime = 20,
   onTimerComplete,
 }: VoiceJournalProps) {
   const [recognizer, setRecognizer] = useState<KaldiRecognizer>();
@@ -330,13 +330,13 @@ export default function VoiceJournal({
         <div className="p-6 space-y-6">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-medium">Journal Summary</h2>
-            <button
+            {/* <button
               onClick={() => setShowSummary(false)}
               className="text-gray-400 hover:text-gray-500"
             >
               <span className="sr-only">Close panel</span>
               <X className="h-6 w-6" />
-            </button>
+            </button> */}
           </div>
 
           {summary ? (

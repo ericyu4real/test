@@ -19,24 +19,39 @@ export function TimelineView({
   const containerRef = useRef<HTMLDivElement>(null);
   const [topRef, topInView] = useInView();
   const [bottomRef, bottomInView] = useInView();
-  const [dates, setDates] = React.useState<string[]>(() => {
-    if (!selectedDate) return [];
+  const [dates, setDates] = React.useState<string[]>([]);
+  const datesRef = useRef<string[]>([]);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    datesRef.current = dates;
+  }, [dates]);
+
+  // Reset and initialize dates when selectedDate changes
+  useEffect(() => {
+    setDates([]);
+    if (!selectedDate) {
+      console.log("clearing");
+      return;
+    }
+
     const date = new Date(selectedDate);
     const result = [];
     const today = format(new Date(), "yyyy-MM-dd");
+
     // Load 15 days before and after selected date
-    for (let i = -15; i <= 15; i++) {
+    for (let i = -7; i <= 7; i++) {
       const currentDate = new Date(date);
       currentDate.setDate(date.getDate() + i);
-      const formated = format(currentDate, "yyyy-MM-dd");
+      const formatted = format(currentDate, "yyyy-MM-dd");
       // Don't load dates beyond today
-      if (formated <= today) {
-        console.log("inserting", formated);
-        result.push(formated);
+      if (formatted <= today) {
+        console.log("here", formatted, selectedDate);
+        result.push(formatted);
       }
     }
-    return result.reverse(); // Most recent first
-  });
+    setDates(result.sort().reverse()); // Sort dates and put most recent first
+  }, [selectedDate]);
 
   // Position the scroll on mount
   useEffect(() => {
@@ -57,12 +72,13 @@ export function TimelineView({
 
   // Load more dates when scrolling to top
   useEffect(() => {
-    if (topInView && dates.length > 0) {
-      const oldestDate = new Date(dates[dates.length - 1]);
+    if (topInView && datesRef.current.length > 0) {
+      const oldestDate = datesRef.current[datesRef.current.length - 1];
       const newDates: string[] = [];
+      const currentDate = new Date(oldestDate);
+
       for (let i = 1; i <= 7; i++) {
-        const currentDate = new Date(oldestDate);
-        currentDate.setDate(oldestDate.getDate() - i);
+        currentDate.setDate(currentDate.getDate() - 1);
         newDates.push(format(currentDate, "yyyy-MM-dd"));
       }
       setDates((prev) => [...prev, ...newDates]);
@@ -71,14 +87,14 @@ export function TimelineView({
 
   // Load more dates when scrolling to bottom
   useEffect(() => {
-    if (bottomInView && dates.length > 0) {
-      const newestDate = new Date(dates[0]);
+    if (bottomInView && datesRef.current.length > 0) {
+      const newestDate = datesRef.current[0];
       const today = new Date();
       const newDates: string[] = [];
+      const currentDate = new Date(newestDate);
 
       for (let i = 1; i <= 7; i++) {
-        const currentDate = new Date(newestDate);
-        currentDate.setDate(newestDate.getDate() + i);
+        currentDate.setDate(currentDate.getDate() + 1);
         if (currentDate <= today) {
           newDates.push(format(currentDate, "yyyy-MM-dd"));
         }
@@ -93,13 +109,9 @@ export function TimelineView({
       <div ref={bottomRef} className="py-2 flex justify-center">
         {bottomInView &&
           dates[0] &&
-          (() => {
-            console.log("All dates:", dates); // Add this to see full array
-            const today = format(new Date(), "yyyy-MM-dd");
-            const latestLoadedDate = dates[0];
-            console.log("comp", latestLoadedDate, today);
-            return latestLoadedDate !== today;
-          })() && <Loader2 className="h-6 w-6 animate-spin" />}
+          dates[0] !== format(new Date(), "yyyy-MM-dd") && (
+            <Loader2 className="h-6 w-6 animate-spin" />
+          )}
       </div>
 
       {dates.map((date) => {
@@ -115,24 +127,13 @@ export function TimelineView({
 
             {summaries.length > 0 ? (
               <div className="space-y-8 pl-4">
-                {summaries.map((summary, idx) => (
-                  <div key={idx} className="space-y-4">
-                    <div>
-                      <h3 className="font-medium">Entry {idx + 1}</h3>
-                      <p className="text-gray-600">{summary.polishedEntry}</p>
-                    </div>
-                    <div>
-                      <h3 className="font-medium">Original Entries</h3>
-                      <div className="space-y-2">
-                        {summary.originalEntries.map((entry, index) => (
-                          <p key={index} className="text-gray-600">
-                            {entry}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-gray-600">
+                      {summaries[0].polishedEntry}
+                    </p>
                   </div>
-                ))}
+                </div>
               </div>
             ) : (
               <div className="pl-4">

@@ -50,7 +50,9 @@ export function useSummaries() {
 
           // Sort entries by timestamp
           Object.keys(newMap).forEach((date) => {
-            newMap[date].sort((a, b) => b.timestamp - a.timestamp);
+            newMap[date].sort(
+              (a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0),
+            );
           });
 
           return newMap;
