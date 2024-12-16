@@ -9,13 +9,18 @@ export function useWebSocket() {
   const [messages, setMessages] = useState<Message[]>([]);
   const socketRef = useRef<Socket | null>(null);
   const streamingMessagesRef = useRef<Map<string, string>>(new Map());
-  const { getSession } = useAuth();
+  const { getSession, isLoading } = useAuth();
 
   useEffect(() => {
     const token = getSession();
+    if (isLoading) return;
+    setMessages([]);
+
     console.log(
       "connecting to ",
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+      "with token",
+      token,
     );
     const socket = io(
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
@@ -35,9 +40,8 @@ export function useWebSocket() {
     });
 
     socket.on("system", (data) => {
-      if (data.userId) {
-        localStorage.setItem("userId", data.userId);
-      }
+      console.log(data.userId);
+      localStorage.setItem("userId", data.userId);
     });
 
     socket.on("chunk", (data) => {
@@ -97,7 +101,7 @@ export function useWebSocket() {
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [isLoading, getSession]);
 
   const sendMessage = useCallback((content: string) => {
     if (socketRef.current?.connected) {

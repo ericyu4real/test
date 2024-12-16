@@ -3,68 +3,83 @@ import { useCallback, useState } from "react";
 import { Summary } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 
+// src/hooks/useSummaries.ts
+interface SummaryMap {
+  [date: string]: Summary[];
+}
+
 export function useSummaries() {
-  const [summaries, setSummaries] = useState<Summary[]>([]);
+  const [summariesMap, setSummariesMap] = useState<SummaryMap>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { getSession } = useAuth();
 
   const fetchSummaries = useCallback(
     async (startDate: string, endDate: string) => {
+      setIsLoading(true);
       try {
         const token = getSession();
-        console.log("Token:", token); // Add this to debug
         if (!token) {
           setError("Not authenticated");
+          setIsLoading(false);
           return;
         }
 
         const userId = localStorage.getItem("userId");
-        console.log("UserId:", userId); // Add this to debug
-        console.log("Token", token);
-
         const response = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL}/summaries?userId=${userId}&startDate=${startDate}&endDate=${endDate}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
             },
           },
         );
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Error response:", errorText); // Add this to debug
-          throw new Error(`Failed to fetch summaries: ${errorText}`);
-        }
+        if (!response.ok) throw new Error(await response.text());
 
         const data = await response.json();
-        setSummaries(data);
+        setSummariesMap(() => {
+          // Changed from prev => {...}
+          const newMap: SummaryMap = {};
+          data.forEach((summary: Summary) => {
+            if (!newMap[summary.date]) {
+              newMap[summary.date] = [];
+            }
+            newMap[summary.date].push(summary);
+          });
+
+          // Sort entries by timestamp
+          Object.keys(newMap).forEach((date) => {
+            newMap[date].sort((a, b) => b.timestamp - a.timestamp);
+          });
+
+          return newMap;
+        });
       } catch (err) {
-        console.error("Fetch error:", err); // Add this to debug
         setError(
           err instanceof Error ? err.message : "Error fetching summaries",
         );
+      } finally {
+        setIsLoading(false);
       }
     },
     [getSession],
   );
 
   const hasSummary = (date: string) => {
-    return summaries.some((summary) => summary.date === date);
+    return !!summariesMap[date]?.length;
   };
 
-  const getSummary = (date: string) => {
-    return summaries.find((summary) => summary.date === date);
+  const getSummariesForDate = (date: string) => {
+    return summariesMap[date] || [];
   };
 
   return {
-    summaries,
+    summariesMap,
     isLoading,
     error,
     fetchSummaries,
     hasSummary,
-    getSummary,
+    getSummariesForDate,
   };
 }

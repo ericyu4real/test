@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SlideOver } from "@/components/SlideOver";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { Summary } from "@/types";
+import { useAuth } from "@/contexts/AuthContext";
 
 const formatText = (text: string): string => {
   let formatted = text.trim();
@@ -27,7 +28,7 @@ interface VoiceJournalProps {
 }
 
 export default function VoiceJournal({
-  initialTime = 20,
+  initialTime = 10,
   onTimerComplete,
 }: VoiceJournalProps) {
   const [recognizer, setRecognizer] = useState<KaldiRecognizer>();
@@ -50,6 +51,7 @@ export default function VoiceJournal({
   const lastProcessedLengthRef = useRef<number>(0);
   const [modelLoading, setModelLoading] = useState(true);
   const modelLoadingRef = useRef<boolean>(true);
+  const { getSession } = useAuth();
 
   useEffect(() => {
     const initializeModel = async () => {
@@ -211,7 +213,13 @@ export default function VoiceJournal({
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/summary?userId=${localStorage.getItem("userId")}`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${getSession()}`,
+            "Content-Type": "application/json",
+          },
+        },
       );
       if (!response.ok) throw new Error("Failed to fetch summary");
       const data = await response.json();
