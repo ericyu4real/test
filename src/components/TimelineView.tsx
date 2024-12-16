@@ -1,5 +1,5 @@
 // src/components/TimelineView.tsx
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { Summary } from "@/types";
 import { useInView } from "react-intersection-observer";
@@ -19,89 +19,97 @@ export function TimelineView({
   const containerRef = useRef<HTMLDivElement>(null);
   const [topRef, topInView] = useInView();
   const [bottomRef, bottomInView] = useInView();
-  const [dates, setDates] = React.useState<string[]>([]);
-  const datesRef = useRef<string[]>([]);
-
-  // Keep ref in sync with state
-  useEffect(() => {
-    datesRef.current = dates;
-  }, [dates]);
-
-  // Reset and initialize dates when selectedDate changes
-  useEffect(() => {
-    setDates([]);
-    if (!selectedDate) {
-      console.log("clearing");
-      return;
-    }
-
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const prevHeightRef = useRef<number>(0);
+  const [dates, setDates] = React.useState<string[]>(() => {
+    if (!selectedDate) return [];
     const date = new Date(selectedDate);
     const result = [];
     const today = format(new Date(), "yyyy-MM-dd");
-
     // Load 15 days before and after selected date
-    for (let i = -7; i <= 7; i++) {
+    for (let i = -15; i <= 15; i++) {
       const currentDate = new Date(date);
       currentDate.setDate(date.getDate() + i);
-      const formatted = format(currentDate, "yyyy-MM-dd");
+      const formated = format(currentDate, "yyyy-MM-dd");
       // Don't load dates beyond today
-      if (formatted <= today) {
-        console.log("here", formatted, selectedDate);
-        result.push(formatted);
+      if (formated <= today) {
+        result.push(formated);
       }
     }
-    setDates(result.sort().reverse()); // Sort dates and put most recent first
-  }, [selectedDate]);
+    return result.reverse(); // Most recent first
+  });
 
-  // Position the scroll on mount
+  // Position the scroll on mount and maintain position when adding items
   useEffect(() => {
     if (!selectedDate || !containerRef.current) return;
 
     const selectedElement = document.getElementById(`date-${selectedDate}`);
     if (selectedElement && containerRef.current) {
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const elementRect = selectedElement.getBoundingClientRect();
+      requestAnimationFrame(() => {
+        if (containerRef.current) {
+          selectedElement.scrollIntoView();
 
-      // Position the selected date in the middle of the container
-      containerRef.current.scrollTop =
-        elementRect.top -
-        containerRect.top -
-        (containerRect.height - elementRect.height) / 2;
+          // Store initial height after positioning
+          prevHeightRef.current = containerRef.current.scrollHeight;
+
+          // Allow loading more items after initial positioning with delay
+          setTimeout(() => {
+            setIsInitialLoad(false);
+          }, 100);
+        }
+      });
     }
   }, [selectedDate]);
 
+  // Maintain scroll position when adding new items at the top
+  useEffect(() => {
+    if (!containerRef.current || isInitialLoad) return;
+
+    const heightDiff =
+      containerRef.current.scrollHeight - prevHeightRef.current;
+    if (heightDiff > 0) {
+      containerRef.current.scrollTop += heightDiff;
+    }
+    prevHeightRef.current = containerRef.current.scrollHeight;
+  }, [dates]);
+
   // Load more dates when scrolling to top
   useEffect(() => {
-    if (topInView && datesRef.current.length > 0) {
-      const oldestDate = datesRef.current[datesRef.current.length - 1];
+    if (topInView && dates.length > 0 && !isInitialLoad) {
+      console.log("peering into the top");
+      const oldestDate = new Date(dates[dates.length - 1]);
       const newDates: string[] = [];
-      const currentDate = new Date(oldestDate);
-
       for (let i = 1; i <= 7; i++) {
-        currentDate.setDate(currentDate.getDate() - 1);
+        const currentDate = new Date(oldestDate);
+        currentDate.setDate(oldestDate.getDate() - i);
         newDates.push(format(currentDate, "yyyy-MM-dd"));
       }
       setDates((prev) => [...prev, ...newDates]);
     }
-  }, [topInView]);
+  }, [topInView, isInitialLoad]);
 
   // Load more dates when scrolling to bottom
   useEffect(() => {
-    if (bottomInView && datesRef.current.length > 0) {
-      const newestDate = datesRef.current[0];
-      const today = new Date();
+    if (bottomInView && dates.length > 0 && !isInitialLoad) {
+      console.log("peering into the bot");
+      const newestDate = new Date(dates[0]);
+      const today = format(new Date(), "yyyy-MM-dd");
       const newDates: string[] = [];
-      const currentDate = new Date(newestDate);
 
       for (let i = 1; i <= 7; i++) {
-        currentDate.setDate(currentDate.getDate() + 1);
-        if (currentDate <= today) {
-          newDates.push(format(currentDate, "yyyy-MM-dd"));
+        const currentDate = new Date(newestDate);
+        currentDate.setDate(newestDate.getDate() + i + 1);
+        const formated = format(currentDate, "yyyy-MM-dd");
+        if (formated <= today) {
+          newDates.push(formated);
         }
       }
-      setDates((prev) => [...newDates.reverse(), ...prev]);
+
+      newDates.reverse();
+
+      setDates((prev) => [...newDates, ...prev]);
     }
-  }, [bottomInView]);
+  }, [bottomInView, isInitialLoad]);
 
   return (
     <div ref={containerRef} className="space-y-8 p-4 h-full overflow-y-auto">
@@ -109,9 +117,12 @@ export function TimelineView({
       <div ref={bottomRef} className="py-2 flex justify-center">
         {bottomInView &&
           dates[0] &&
-          dates[0] !== format(new Date(), "yyyy-MM-dd") && (
-            <Loader2 className="h-6 w-6 animate-spin" />
-          )}
+          !isInitialLoad &&
+          (() => {
+            const today = format(new Date(), "yyyy-MM-dd");
+            const latestLoadedDate = dates[0];
+            return latestLoadedDate !== today;
+          })() && <Loader2 className="h-6 w-6 animate-spin" />}
       </div>
 
       {dates.map((date) => {
@@ -146,7 +157,7 @@ export function TimelineView({
 
       {/* Bottom loader */}
       <div ref={topRef} className="py-2 flex justify-center">
-        {topInView && dates.length > 0 && (
+        {topInView && dates.length > 0 && !isInitialLoad && (
           <Loader2 className="h-6 w-6 animate-spin" />
         )}
       </div>
