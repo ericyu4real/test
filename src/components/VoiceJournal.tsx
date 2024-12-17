@@ -2,66 +2,79 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { createModel, KaldiRecognizer, Model } from "vosk-browser";
 import { RecognizerMessage } from "vosk-browser/dist/interfaces";
-import { Timer, Mic, MicOff, BookOpen } from "lucide-react";
+import { BookOpen, Mic } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SlideOver } from "@/components/SlideOver";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { Summary } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 
-const formatText = (text: string): string => {
-  let formatted = text.trim();
-  if (formatted.length === 0) return formatted;
-  formatted = formatted.charAt(0).toUpperCase() + formatted.slice(1);
-  const lastChar = formatted.slice(-1);
-  if (!/[.!?]$/.test(lastChar)) {
-    formatted += ".";
-  }
-  return formatted;
-};
+const MESSAGES = [
+  { text: "Think about what you did today...", duration: 7 },
+  { text: "Breathe in...", duration: 3 },
+  { text: "Breathe out...", duration: 2 },
+];
+
+const TOTAL_PREP_TIME = 12; // Sum of all message durations
 
 interface VoiceJournalProps {
   initialTime?: number;
   onTimerComplete?: () => void;
 }
 
+type Phase = "preparing" | "ready" | "recording" | "completed";
+
+const formatText = (text: string): string => {
+  let formatted = text.trim();
+  if (formatted.length === 0) return formatted;
+  formatted = formatted.charAt(0).toUpperCase() + formatted.slice(1);
+  if (!/[.!?]$/.test(formatted.slice(-1))) {
+    formatted += ".";
+  }
+  return formatted;
+};
+
 export default function VoiceJournal({
   initialTime = 60,
   onTimerComplete,
 }: VoiceJournalProps) {
+  // Core state
+  const [phase, setPhase] = useState<Phase>("preparing");
+  const [message, setMessage] = useState(MESSAGES[0].text);
+  const [prepTimeLeft, setPrepTimeLeft] = useState(TOTAL_PREP_TIME);
+  const [recordingTimeLeft, setRecordingTimeLeft] = useState(initialTime);
+  const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
+
+  // Model and recognition state
+  const [modelLoading, setModelLoading] = useState(true);
   const [recognizer, setRecognizer] = useState<KaldiRecognizer>();
-  const [model, setModel] = useState<Model>();
-  const [error, setError] = useState<string | null>(null);
   const [currentText, setCurrentText] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+
+  // Summary state
+  const [showSummary, setShowSummary] = useState(false);
+  const [summary, setSummary] = useState<Summary | null>(null);
+
+  // Refs
   const audioContextRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const { isConnected, messages, sendMessage } = useWebSocket();
   const pendingTextRef = useRef<string>("");
-
-  // Timer and control states
-  const [isListening, setIsListening] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(initialTime);
-  const [timerActive, setTimerActive] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
-  const [summary, setSummary] = useState<Summary | null>(null);
   const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastProcessedLengthRef = useRef<number>(0);
-  const [modelLoading, setModelLoading] = useState(true);
-  const modelLoadingRef = useRef<boolean>(true);
+
+  const { isConnected, messages, sendMessage } = useWebSocket();
   const { getSession } = useAuth();
 
+  // Initialize model
   useEffect(() => {
     const initializeModel = async () => {
       try {
-        console.log("Starting model initialization");
         const loadedModel = await createModel(
           "/models/vosk-model-small-en-us-0.15.tar.gz",
         );
-        setModel(loadedModel);
-
         const rec = new loadedModel.KaldiRecognizer(16000);
         rec.setWords(true);
 
@@ -72,13 +85,10 @@ export default function VoiceJournal({
             return;
           }
 
-          if (message.event === "result") {
+          if (message.event === "result" && message.result.text) {
             setError(null);
-            const text = message.result.text;
-            if (text) {
-              pendingTextRef.current += " " + text;
-              setCurrentText(pendingTextRef.current.trim());
-            }
+            pendingTextRef.current += " " + message.result.text;
+            setCurrentText(pendingTextRef.current.trim());
           }
         });
 
@@ -87,7 +97,6 @@ export default function VoiceJournal({
             message.event === "partialresult" &&
             message.result.partial.trim()
           ) {
-            console.log("partial", message.result.partial);
             setCurrentText(
               pendingTextRef.current + " " + message.result.partial,
             );
@@ -98,8 +107,7 @@ export default function VoiceJournal({
 
             pauseTimeoutRef.current = setTimeout(() => {
               if (pendingTextRef.current) {
-                const formattedText = formatText(pendingTextRef.current);
-                sendMessage(formattedText);
+                sendMessage(formatText(pendingTextRef.current));
                 pendingTextRef.current = "";
                 setCurrentText("");
               }
@@ -109,24 +117,80 @@ export default function VoiceJournal({
 
         setRecognizer(rec);
         setModelLoading(false);
-        modelLoadingRef.current = false;
-        console.log("Model initialization complete");
       } catch (error) {
         console.error("Error initializing model:", error);
         setError("Failed to initialize speech recognition model");
         setModelLoading(false);
-        modelLoadingRef.current = false;
       }
     };
 
     initializeModel();
-
-    return () => {
-      model?.terminate();
-    };
   }, []);
 
-  const startListening = async () => {
+  // Handle preparation phase messages and timing
+  const updateMessage = (timeLeft: number) => {
+    if (timeLeft === TOTAL_PREP_TIME - MESSAGES[0].duration) {
+      // When 7 seconds are left
+      setMessage("Breathe in...");
+    } else if (
+      timeLeft ===
+      TOTAL_PREP_TIME - MESSAGES[0].duration - MESSAGES[1].duration
+    ) {
+      // When 5 seconds are left
+      setMessage("Breathe out...");
+    } else if (
+      timeLeft ===
+      TOTAL_PREP_TIME -
+        MESSAGES[0].duration -
+        MESSAGES[1].duration -
+        MESSAGES[2].duration
+    ) {
+      // terible code, change later
+      // When 4 seconds are left
+      setMessage("Start when you're ready");
+    }
+  };
+
+  // Then in the useEffect:
+  useEffect(() => {
+    if (phase === "preparing") {
+      const interval = setInterval(() => {
+        setPrepTimeLeft((prev) => {
+          const newTime = prev - 1;
+          updateMessage(newTime);
+
+          if (newTime <= 0) {
+            clearInterval(interval);
+            setPhase("ready");
+            return 0;
+          }
+          return newTime;
+        });
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [phase]);
+
+  // Handle recording phase timing
+  useEffect(() => {
+    if (phase === "recording") {
+      const interval = setInterval(() => {
+        setRecordingTimeLeft((prev) => {
+          if (prev <= 1) {
+            stopRecording();
+            setPhase("completed");
+            onTimerComplete?.();
+            clearInterval(interval);
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [phase, onTimerComplete]);
+
+  const startRecording = async () => {
     if (!recognizer) return;
 
     try {
@@ -172,47 +236,38 @@ export default function VoiceJournal({
       source.connect(workletNodeRef.current);
       workletNodeRef.current.connect(audioContextRef.current.destination);
 
-      setIsListening(true);
-      setTimerActive(true);
+      setPhase("recording");
+      setMessage("Recording your thoughts...");
     } catch (err) {
       console.error("Error accessing microphone:", err);
       setError("Failed to access microphone");
     }
   };
 
-  const stopListening = () => {
+  const stopRecording = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
     }
     workletNodeRef.current?.disconnect();
-    setIsListening(false);
-    setTimerActive(false);
     if (pauseTimeoutRef.current) {
       clearTimeout(pauseTimeoutRef.current);
     }
-    lastProcessedLengthRef.current = 0; // Reset the processed length
   };
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (timerActive && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft((time) => {
-          if (time <= 1) {
-            stopListening();
-            onTimerComplete?.();
-          }
-          return time - 1;
-        });
-      }, 1000);
+  const handleDone = () => {
+    if (phase === "recording") {
+      stopRecording();
+      setPhase("completed");
+      setMessage("Recording completed");
     }
-    return () => clearInterval(interval);
-  }, [timerActive, timeLeft, onTimerComplete]);
+  };
 
   const fetchSummary = async () => {
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/summary?userId=${localStorage.getItem("userId")}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/summary?userId=${localStorage.getItem(
+          "userId",
+        )}`,
         {
           method: "POST",
           headers: {
@@ -240,103 +295,132 @@ export default function VoiceJournal({
     }
   };
 
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
   return (
-    <div className="max-w-2xl mx-auto p-4 space-y-4">
-      <div className="flex flex-col items-center space-y-4">
-        <div className="text-4xl font-bold">{formatTime(timeLeft)}</div>
+    <div className="h-screen flex flex-col">
+      {/* Messages section */}
+      <div className="flex-1 p-4 overflow-y-auto">
+        <div className="max-w-2xl mx-auto space-y-4">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={message}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="text-xl text-center font-medium text-gray-700"
+            >
+              {message}
+            </motion.div>
+          </AnimatePresence>
 
-        <button
-          onClick={isListening ? stopListening : startListening}
-          disabled={modelLoading}
-          className={`px-6 py-3 rounded-full flex items-center space-x-2 ${
-            isListening
-              ? "bg-red-500 hover:bg-red-600"
-              : modelLoading
-                ? "bg-gray-400"
-                : "bg-blue-500 hover:bg-blue-600"
-          } text-white transition-colors`}
-        >
-          {isListening ? (
-            <>
-              <MicOff className="w-5 h-5" />
-              <span>Stop</span>
-            </>
-          ) : (
-            <>
-              <Mic className="w-5 h-5" />
-              <span>{modelLoading ? "Loading..." : "Start"}</span>
-            </>
+          {/* Current transcription during recording */}
+          {phase === "recording" && currentText && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="w-full p-4 rounded-lg bg-gray-100"
+            >
+              <p className="text-gray-600">{currentText}</p>
+            </motion.div>
           )}
-        </button>
 
-        {timeLeft === 0 && (
-          <button
+          {/* Latest AI response */}
+          {messages.length > 0 && phase !== "preparing" && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="w-full p-4 rounded-lg bg-blue-50"
+            >
+              <p className="text-gray-600">
+                {messages[messages.length - 1].content}
+              </p>
+            </motion.div>
+          )}
+
+          {error && (
+            <Alert className="bg-red-50 border-red-200">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </div>
+
+      <div className="p-4 h-[68px] flex justify-center">
+        {phase === "completed" && (
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
             onClick={fetchSummary}
             className="px-4 py-2 rounded-full flex items-center space-x-2 bg-green-500 hover:bg-green-600 text-white transition-colors"
-            disabled={messages.length === 0}
           >
             <BookOpen className="w-5 h-5" />
             <span>View Summary</span>
-          </button>
-        )}
-
-        {!isConnected && (
-          <Alert className="bg-yellow-50 border-yellow-200">
-            <AlertDescription>Connecting to server...</AlertDescription>
-          </Alert>
-        )}
-
-        {error && (
-          <Alert className="bg-red-50 border-red-200">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {isListening && currentText && (
-          <Alert className="bg-blue-50 border-blue-200">
-            <Timer className="w-4 h-4" />
-            <AlertDescription>Listening... {currentText}</AlertDescription>
-          </Alert>
+          </motion.button>
         )}
       </div>
 
-      <div className="space-y-4 mt-8">
-        {messages.map((message, index) => (
-          <div
-            key={`${message.timestamp?.getTime()}-${index}`}
-            className={`p-4 rounded-lg ${
-              message.type === "user"
-                ? "bg-gray-100"
-                : message.isStreaming
-                  ? "bg-blue-50"
-                  : "bg-blue-100"
-            }`}
+      {/* Controls section - positioned higher */}
+      <div className="pb-12 flex flex-col items-center space-y-4 flex-1">
+        <div className="relative">
+          <motion.div
+            className="w-32 h-32 rounded-full flex items-center justify-center relative"
+            style={{
+              background:
+                phase === "recording"
+                  ? "rgb(239, 68, 68)"
+                  : "rgb(59, 130, 246)",
+            }}
           >
-            {message.content}
-            {message.isStreaming && (
-              <span className="inline-block ml-1 animate-pulse">▊</span>
+            {(phase === "recording" || phase === "preparing") && (
+              <svg viewBox="0 0 100 100" className="absolute inset-0">
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="45"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth="2"
+                  strokeDasharray="283"
+                  strokeDashoffset={
+                    283 *
+                    (phase === "recording"
+                      ? recordingTimeLeft / initialTime
+                      : prepTimeLeft / TOTAL_PREP_TIME)
+                  }
+                  transform="rotate(-90 50 50)"
+                />
+              </svg>
             )}
-          </div>
-        ))}
+            <button
+              onClick={phase === "recording" ? handleDone : startRecording}
+              disabled={
+                phase === "preparing" || phase === "completed" || modelLoading
+              }
+              className="w-full h-full rounded-full flex items-center justify-center text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {phase === "preparing" ? (
+                <span className="text-lg font-medium">{prepTimeLeft}</span>
+              ) : phase === "recording" ? (
+                <span className="text-lg font-medium">
+                  {recordingTimeLeft}s
+                </span>
+              ) : phase === "ready" ? (
+                <div className="flex items-center gap-2">
+                  <Mic className="w-6 h-6" />
+                  <span>Start</span>
+                </div>
+              ) : (
+                <Mic className="w-8 h-8" />
+              )}
+            </button>
+          </motion.div>
+        </div>
       </div>
 
+      {/* SlideOver content remains the same */}
       <SlideOver isOpen={showSummary} onClose={() => setShowSummary(false)}>
         <div className="p-6 space-y-6">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-medium">Journal Summary</h2>
-            {/* <button
-              onClick={() => setShowSummary(false)}
-              className="text-gray-400 hover:text-gray-500"
-            >
-              <span className="sr-only">Close panel</span>
-              <X className="h-6 w-6" />
-            </button> */}
           </div>
 
           {summary ? (
@@ -347,16 +431,8 @@ export default function VoiceJournal({
               </div>
 
               <div>
-                <h3 className="font-medium mb-2">Original Entries</h3>
-                <div className="space-y-2">
-                  {summary.originalEntries.map(
-                    (entry: string, index: number) => (
-                      <p key={index} className="text-gray-600">
-                        {entry}
-                      </p>
-                    ),
-                  )}
-                </div>
+                <h3 className="font-medium mb-2">Key Points</h3>
+                <p className="text-gray-600">{summary.keyPoints}</p>
               </div>
             </div>
           ) : (
