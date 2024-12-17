@@ -263,11 +263,12 @@ export default function VoiceJournal({
   };
 
   const fetchSummary = async () => {
+    setShowSummary(true); // Show the slide-over immediately
+    setSummary(null); // Reset summary to show loading state
+
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/summary?userId=${localStorage.getItem(
-          "userId",
-        )}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/summary?userId=${localStorage.getItem("userId")}`,
         {
           method: "POST",
           headers: {
@@ -288,7 +289,6 @@ export default function VoiceJournal({
           .filter((msg) => msg.type === "user")
           .map((msg) => msg.content),
       });
-      setShowSummary(true);
     } catch (error) {
       console.error("Error fetching summary:", error);
       setError("Failed to fetch summary");
@@ -298,7 +298,7 @@ export default function VoiceJournal({
   return (
     <div className="h-screen flex flex-col">
       {/* Messages section */}
-      <div className="flex-1 p-4 overflow-y-auto">
+      <div className="flex-1 p-4 overflow-hidden">
         <div className="max-w-2xl mx-auto space-y-4">
           <AnimatePresence mode="wait">
             <motion.div
@@ -312,28 +312,20 @@ export default function VoiceJournal({
             </motion.div>
           </AnimatePresence>
 
-          {/* Current transcription during recording */}
-          {phase === "recording" && currentText && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="w-full p-4 rounded-lg bg-gray-100"
-            >
-              <p className="text-gray-600">{currentText}</p>
-            </motion.div>
-          )}
-
-          {/* Latest AI response */}
+          {/* Latest AI response without animation */}
           {messages.length > 0 && phase !== "preparing" && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="w-full p-4 rounded-lg bg-blue-50"
-            >
+            <div className="w-full p-4 rounded-lg bg-blue-50">
               <p className="text-gray-600">
                 {messages[messages.length - 1].content}
               </p>
-            </motion.div>
+            </div>
+          )}
+
+          {/* Latest user transcription */}
+          {phase === "recording" && currentText && (
+            <div className="w-full p-4 rounded-lg bg-gray-100">
+              <p className="text-gray-600">{currentText}</p>
+            </div>
           )}
 
           {error && (
@@ -359,10 +351,12 @@ export default function VoiceJournal({
       </div>
 
       {/* Controls section - positioned higher */}
-      <div className="pb-12 flex flex-col items-center space-y-4 flex-1">
+      <div className="pb-6 flex flex-col items-center flex-1">
+        {" "}
+        {/* Reduced pb-12 to pb-6 */}
         <div className="relative">
           <motion.div
-            className="w-32 h-32 rounded-full flex items-center justify-center relative"
+            className="w-28 h-28 rounded-full flex items-center justify-center relative" // Reduced from w-32 h-32 to w-24 h-24
             style={{
               background:
                 phase === "recording"
