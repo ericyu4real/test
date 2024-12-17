@@ -8,7 +8,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2 } from "lucide-react";
 import { useSummaries } from "@/hooks/useSummaries";
 import { useJournalDates } from "@/hooks/useJournalDates";
-import { TimelineView } from "./TimelineView";
 
 export default function JournalHistory() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
@@ -106,10 +105,43 @@ export default function JournalHistory() {
             <Loader2 className="h-8 w-8 animate-spin" />
           </div>
         ) : (
-          <TimelineView
-            summariesMap={summariesMap}
-            selectedDate={selectedDate && format(selectedDate, "yyyy-MM-dd")}
-          />
+          <div className="p-6 space-y-4">
+            <h2 className="text-xl font-semibold">
+              {selectedDate && format(selectedDate, "MMMM d, yyyy")}
+            </h2>
+
+            {selectedDate &&
+            summariesMap[format(selectedDate, "yyyy-MM-dd")]?.length > 0 ? (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-md font-medium mb-2">Summary</h3>
+                  <p className="text-gray-600">
+                    {
+                      summariesMap[format(selectedDate, "yyyy-MM-dd")][0]
+                        .polishedEntry
+                    }
+                  </p>
+                </div>
+
+                {summariesMap[format(selectedDate, "yyyy-MM-dd")][0]
+                  .keyPoints && (
+                  <div>
+                    <h3 className="text-md font-medium mb-2">Key Points</h3>
+                    <p className="text-gray-600">
+                      {
+                        summariesMap[format(selectedDate, "yyyy-MM-dd")][0]
+                          .keyPoints
+                      }
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center text-gray-500 py-10">
+                No journal entry found for this date
+              </div>
+            )}
+          </div>
         )}
       </SlideOver>
     </div>
