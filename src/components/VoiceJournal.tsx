@@ -28,7 +28,7 @@ interface VoiceJournalProps {
 }
 
 export default function VoiceJournal({
-  initialTime = 20,
+  initialTime = 60,
   onTimerComplete,
 }: VoiceJournalProps) {
   const [recognizer, setRecognizer] = useState<KaldiRecognizer>();

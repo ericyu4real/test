@@ -21,15 +21,5 @@ export default function HistoryPage() {
     return null;
   }
 
-  // This is temporary mock data - we'll replace it with real data later
-  const mockEntries = {
-    "2024-12-13": [
-      {
-        content: "Sample journal entry for today",
-        timestamp: new Date(),
-      },
-    ],
-  };
-
-  return <JournalHistory entries={mockEntries} />;
+  return <JournalHistory/>;
 }
