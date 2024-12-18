@@ -13,12 +13,12 @@ import { Summary } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 
 const MESSAGES = [
-  { text: "Reflect on your day...", duration: 7 },
-  { text: "Tasks you accomplished...", duration: 10 },
-  { text: "Tasks you didn't have time for...", duration: 16 },
-  { text: "Things you were greatful for...", duration: 13 },
-  { text: "Breathe in...", duration: 18 },
-  { text: "Breathe out...", duration: 20 },
+  { text: "Reflect on your day...", duration: 6 },
+  { text: "Tasks you accomplished...", duration: 9 },
+  { text: "Tasks you didn't have time for...", duration: 12 },
+  { text: "Things you were greatful for...", duration: 15 },
+  { text: "Breathe in...", duration: 17 },
+  { text: "Breathe out...", duration: 19 },
 ];
 
 const TOTAL_PREP_TIME = 20; // Sum of all message durations
@@ -132,7 +132,7 @@ export default function VoiceJournal({
   // Handle preparation phase messages and timing
   const updateMessage = (timeLeft: number) => {
     for (let i = 0; i < MESSAGES.length; i++) {
-      if (timeLeft >= TOTAL_PREP_TIME - MESSAGES[i].duration) {
+      if (timeLeft > TOTAL_PREP_TIME - MESSAGES[i].duration) {
         setMessage(MESSAGES[i].text);
         return;
       }
