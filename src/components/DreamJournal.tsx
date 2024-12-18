@@ -1,4 +1,3 @@
-// src/components/VoiceJournal.tsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -12,23 +11,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import { Summary } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 
-const MESSAGES = [
-  { text: "Reflect on your day...", duration: 7 },
-  { text: "Tasks you accomplished...", duration: 10 },
-  { text: "Tasks you didn't have time for...", duration: 16 },
-  { text: "Things you were greatful for...", duration: 13 },
-  { text: "Breathe in...", duration: 18 },
-  { text: "Breathe out...", duration: 20 },
-];
-
-const TOTAL_PREP_TIME = 20; // Sum of all message durations
-
-interface VoiceJournalProps {
-  initialTime?: number;
-  onTimerComplete?: () => void;
-}
-
-type Phase = "preparing" | "ready" | "recording" | "completed";
+type Phase = "ready" | "recording" | "completed";
 
 const formatText = (text: string): string => {
   let formatted = text.trim();
@@ -40,21 +23,18 @@ const formatText = (text: string): string => {
   return formatted;
 };
 
-export default function VoiceJournal({
-  initialTime = 60,
-  onTimerComplete,
-}: VoiceJournalProps) {
+export default function DreamJournal() {
+  const RECORDING_TIME = 180; // 3 minutes
+
   // Core state
-  const [phase, setPhase] = useState<Phase>("preparing");
-  const [message, setMessage] = useState(MESSAGES[0].text);
-  const [prepTimeLeft, setPrepTimeLeft] = useState(TOTAL_PREP_TIME);
-  const [recordingTimeLeft, setRecordingTimeLeft] = useState(initialTime);
+  const [phase, setPhase] = useState<Phase>("ready");
+  const [recordingTimeLeft, setRecordingTimeLeft] = useState(RECORDING_TIME);
+  const [currentText, setCurrentText] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
   // Model and recognition state
   const [modelLoading, setModelLoading] = useState(true);
   const [recognizer, setRecognizer] = useState<KaldiRecognizer>();
-  const [currentText, setCurrentText] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
 
   // Summary state
   const [showSummary, setShowSummary] = useState(false);
@@ -91,6 +71,7 @@ export default function VoiceJournal({
             setError(null);
             pendingTextRef.current += " " + message.result.text;
             setCurrentText(pendingTextRef.current.trim());
+            sendMessage(formatText(message.result.text));
           }
         });
 
@@ -102,18 +83,6 @@ export default function VoiceJournal({
             setCurrentText(
               pendingTextRef.current + " " + message.result.partial,
             );
-
-            if (pauseTimeoutRef.current) {
-              clearTimeout(pauseTimeoutRef.current);
-            }
-
-            pauseTimeoutRef.current = setTimeout(() => {
-              if (pendingTextRef.current) {
-                sendMessage(formatText(pendingTextRef.current));
-                pendingTextRef.current = "";
-                setCurrentText("");
-              }
-            }, 3000);
           }
         });
 
@@ -129,39 +98,23 @@ export default function VoiceJournal({
     initializeModel();
   }, []);
 
-  // Handle preparation phase messages and timing
-  const updateMessage = (timeLeft: number) => {
-    for (let i = 0; i < MESSAGES.length; i++) {
-      if (timeLeft >= TOTAL_PREP_TIME - MESSAGES[i].duration) {
-        setMessage(MESSAGES[i].text);
-        return;
-      }
-    }
-    // terible code, change later
-    // When 4 seconds are left
-    setMessage("Start when you're ready");
-  };
+  const [loadingProgress, setLoadingProgress] = useState(0);
 
-  // Then in the useEffect:
+  // Add right after the other useEffect
   useEffect(() => {
-    if (phase === "preparing") {
+    if (modelLoading) {
+      // Start at 0, approach 95% logarithmically
+      let progress = 0;
       const interval = setInterval(() => {
-        setPrepTimeLeft((prev) => {
-          const newTime = prev - 1;
-          updateMessage(newTime);
-
-          if (newTime <= 0) {
-            clearInterval(interval);
-            setPhase("ready");
-            return 0;
-          }
-          return newTime;
-        });
-      }, 1000);
+        progress += (95 - progress) * 0.1; // Each step gets smaller
+        setLoadingProgress(progress);
+      }, 100);
 
       return () => clearInterval(interval);
+    } else {
+      setLoadingProgress(100); // Jump to 100% when actually loaded
     }
-  }, [phase]);
+  }, [modelLoading]);
 
   // Handle recording phase timing
   useEffect(() => {
@@ -171,7 +124,6 @@ export default function VoiceJournal({
           if (prev <= 1) {
             stopRecording();
             setPhase("completed");
-            onTimerComplete?.();
             clearInterval(interval);
           }
           return prev - 1;
@@ -179,7 +131,7 @@ export default function VoiceJournal({
       }, 1000);
       return () => clearInterval(interval);
     }
-  }, [phase, onTimerComplete]);
+  }, [phase]);
 
   const startRecording = async () => {
     if (!recognizer) return;
@@ -228,7 +180,6 @@ export default function VoiceJournal({
       workletNodeRef.current.connect(audioContextRef.current.destination);
 
       setPhase("recording");
-      setMessage("Recording your thoughts...");
     } catch (err) {
       console.error("Error accessing microphone:", err);
       setError("Failed to access microphone");
@@ -249,13 +200,12 @@ export default function VoiceJournal({
     if (phase === "recording") {
       stopRecording();
       setPhase("completed");
-      setMessage("Recording completed");
     }
   };
 
   const fetchSummary = async () => {
-    setShowSummary(true); // Show the slide-over immediately
-    setSummary(null); // Reset summary to show loading state
+    setShowSummary(true);
+    setSummary(null);
 
     try {
       const response = await fetch(
@@ -288,31 +238,24 @@ export default function VoiceJournal({
 
   return (
     <div className="h-screen flex flex-col">
-      {/* Messages section */}
       <div className="flex-1 p-4 overflow-hidden">
         <div className="max-w-2xl mx-auto space-y-4">
           <AnimatePresence mode="wait">
             <motion.div
-              key={message}
+              key="title"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               className="text-xl text-center font-medium text-gray-700"
             >
-              {message}
+              {phase === "ready"
+                ? "What was your dream?"
+                : phase === "recording"
+                  ? "Recording your dream..."
+                  : "Recording completed"}
             </motion.div>
           </AnimatePresence>
 
-          {/* Latest AI response without animation */}
-          {messages.length > 0 && phase !== "preparing" && (
-            <div className="w-full p-4 rounded-lg bg-blue-50">
-              <p className="text-gray-600">
-                {messages[messages.length - 1].content}
-              </p>
-            </div>
-          )}
-
-          {/* Latest user transcription */}
           {phase === "recording" && currentText && (
             <div className="w-full p-4 rounded-lg bg-gray-100">
               <p className="text-gray-600">{currentText}</p>
@@ -341,13 +284,10 @@ export default function VoiceJournal({
         )}
       </div>
 
-      {/* Controls section - positioned higher */}
       <div className="pb-6 flex flex-col items-center flex-1">
-        {" "}
-        {/* Reduced pb-12 to pb-6 */}
         <div className="relative">
           <motion.div
-            className="w-28 h-28 rounded-full flex items-center justify-center relative" // Reduced from w-32 h-32 to w-24 h-24
+            className="w-28 h-28 rounded-full flex items-center justify-center relative"
             style={{
               background:
                 phase === "recording"
@@ -355,7 +295,7 @@ export default function VoiceJournal({
                   : "rgb(59, 130, 246)",
             }}
           >
-            {(phase === "recording" || phase === "preparing") && (
+            {phase === "recording" && (
               <svg viewBox="0 0 100 100" className="absolute inset-0">
                 <circle
                   cx="50"
@@ -365,25 +305,44 @@ export default function VoiceJournal({
                   stroke="white"
                   strokeWidth="2"
                   strokeDasharray="283"
-                  strokeDashoffset={
-                    283 *
-                    (phase === "recording"
-                      ? recordingTimeLeft / initialTime
-                      : prepTimeLeft / TOTAL_PREP_TIME)
-                  }
+                  strokeDashoffset={283 * (recordingTimeLeft / RECORDING_TIME)}
                   transform="rotate(-90 50 50)"
                 />
               </svg>
             )}
             <button
               onClick={phase === "recording" ? handleDone : startRecording}
-              disabled={
-                phase === "preparing" || phase === "completed" || modelLoading
-              }
+              disabled={phase === "completed" || modelLoading}
               className="w-full h-full rounded-full flex items-center justify-center text-white hover:opacity-90 transition-opacity disabled:opacity-50"
             >
-              {phase === "preparing" ? (
-                <span className="text-lg font-medium">{prepTimeLeft}</span>
+              {modelLoading ? (
+                <div className="relative w-16 h-16">
+                  <svg className="absolute inset-0" viewBox="0 0 100 100">
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="45"
+                      fill="none"
+                      stroke="#E2E8F0"
+                      strokeWidth="6"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="45"
+                      fill="none"
+                      stroke="white"
+                      strokeWidth="6"
+                      strokeDasharray="283"
+                      strokeDashoffset={283 * ((100 - loadingProgress) / 100)}
+                      transform="rotate(-90 50 50)"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center text-white text-sm">
+                    {Math.round(loadingProgress)}%
+                  </div>
+                </div>
               ) : phase === "recording" ? (
                 <span className="text-lg font-medium">
                   {recordingTimeLeft}s
@@ -401,11 +360,10 @@ export default function VoiceJournal({
         </div>
       </div>
 
-      {/* SlideOver content remains the same */}
       <SlideOver isOpen={showSummary} onClose={() => setShowSummary(false)}>
         <div className="p-6 space-y-6">
           <div className="flex justify-between items-center">
-            <h2 className="text-lg font-medium">Journal Summary</h2>
+            <h2 className="text-lg font-medium">Dream Summary</h2>
           </div>
 
           {summary ? (
