@@ -16,7 +16,7 @@ const MESSAGES = [
   { text: "Reflect on your day...", duration: 6 },
   { text: "Tasks you accomplished...", duration: 9 },
   { text: "Tasks you didn't have time for...", duration: 12 },
-  { text: "Things you were greatful for...", duration: 15 },
+  { text: "Things you were grateful for...", duration: 15 },
   { text: "Breathe in...", duration: 17 },
   { text: "Breathe out...", duration: 19 },
 ];
@@ -66,9 +66,17 @@ export default function VoiceJournal({
   const streamRef = useRef<MediaStream | null>(null);
   const pendingTextRef = useRef<string>("");
   const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const transcriptionRef = useRef<HTMLDivElement>(null);
 
   const { messages, sendMessage } = useWebSocket();
   const { getSession } = useAuth();
+
+  useEffect(() => {
+    if (transcriptionRef.current) {
+      transcriptionRef.current.scrollTop =
+        transcriptionRef.current.scrollHeight;
+    }
+  }, [currentText]);
 
   // Initialize model
   useEffect(() => {
@@ -169,10 +177,10 @@ export default function VoiceJournal({
       const interval = setInterval(() => {
         setRecordingTimeLeft((prev) => {
           if (prev <= 1) {
-            stopRecording();
-            setPhase("completed");
+            setMessage("Time's up! Press 'Finish' when you're done");
             onTimerComplete?.();
             clearInterval(interval);
+            return 0;
           }
           return prev - 1;
         });
@@ -303,7 +311,7 @@ export default function VoiceJournal({
             </motion.div>
           </AnimatePresence>
 
-          {/* Latest AI response without animation */}
+          {/* This is where the code goes - replacing the existing message displays */}
           {messages.length > 0 && phase !== "preparing" && (
             <div className="w-full p-4 rounded-lg bg-blue-50">
               <p className="text-gray-600">
@@ -312,12 +320,20 @@ export default function VoiceJournal({
             </div>
           )}
 
-          {/* Latest user transcription */}
-          {phase === "recording" && currentText && (
-            <div className="w-full p-4 rounded-lg bg-gray-100">
-              <p className="text-gray-600">{currentText}</p>
-            </div>
-          )}
+          {(phase === "recording" || phase === "completed") &&
+            (messages.some((m) => m.type === "user") || currentText) && (
+              <div
+                ref={transcriptionRef}
+                className="w-full p-4 rounded-lg bg-gray-100 h-[72px] overflow-y-auto"
+              >
+                <p className="text-gray-600 whitespace-pre-wrap">
+                  {messages
+                    .filter((msg) => msg.type === "user")
+                    .map((msg) => msg.content)
+                    .join(" ... ") + (currentText ? " ... " + currentText : "")}
+                </p>
+              </div>
+            )}
 
           {error && (
             <Alert className="bg-red-50 border-red-200">
@@ -386,7 +402,7 @@ export default function VoiceJournal({
                 <span className="text-lg font-medium">{prepTimeLeft}</span>
               ) : phase === "recording" ? (
                 <span className="text-lg font-medium">
-                  {recordingTimeLeft}s
+                  {recordingTimeLeft > 0 ? `${recordingTimeLeft}s` : "Finish"}
                 </span>
               ) : phase === "ready" ? (
                 <div className="flex items-center gap-2">

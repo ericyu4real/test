@@ -24,11 +24,8 @@ const formatText = (text: string): string => {
 };
 
 export default function DreamJournal() {
-  const RECORDING_TIME = 180; // 3 minutes
-
   // Core state
   const [phase, setPhase] = useState<Phase>("ready");
-  const [recordingTimeLeft, setRecordingTimeLeft] = useState(RECORDING_TIME);
   const [currentText, setCurrentText] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
@@ -115,23 +112,6 @@ export default function DreamJournal() {
       setLoadingProgress(100); // Jump to 100% when actually loaded
     }
   }, [modelLoading]);
-
-  // Handle recording phase timing
-  useEffect(() => {
-    if (phase === "recording") {
-      const interval = setInterval(() => {
-        setRecordingTimeLeft((prev) => {
-          if (prev <= 1) {
-            stopRecording();
-            setPhase("completed");
-            clearInterval(interval);
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => clearInterval(interval);
-    }
-  }, [phase]);
 
   const startRecording = async () => {
     if (!recognizer) return;
@@ -295,21 +275,6 @@ export default function DreamJournal() {
                   : "rgb(59, 130, 246)",
             }}
           >
-            {phase === "recording" && (
-              <svg viewBox="0 0 100 100" className="absolute inset-0">
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="45"
-                  fill="none"
-                  stroke="white"
-                  strokeWidth="2"
-                  strokeDasharray="283"
-                  strokeDashoffset={283 * (recordingTimeLeft / RECORDING_TIME)}
-                  transform="rotate(-90 50 50)"
-                />
-              </svg>
-            )}
             <button
               onClick={phase === "recording" ? handleDone : startRecording}
               disabled={phase === "completed" || modelLoading}
@@ -344,9 +309,9 @@ export default function DreamJournal() {
                   </div>
                 </div>
               ) : phase === "recording" ? (
-                <span className="text-lg font-medium">
-                  {recordingTimeLeft}s
-                </span>
+                <div className="flex items-center gap-2">
+                  <span>Stop</span>
+                </div>
               ) : phase === "ready" ? (
                 <div className="flex items-center gap-2">
                   <Mic className="w-6 h-6" />
