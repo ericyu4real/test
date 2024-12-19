@@ -262,9 +262,10 @@ export default function VoiceJournal({
   };
 
   const fetchSummary = async () => {
-    setShowSummary(true); // Show the slide-over immediately
-    setSummary(null); // Reset summary to show loading state
-
+    const isAuthenticated = !!getSession();
+    setShowSummary(true);
+    setSummary(null);
+  
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/summary?userId=${localStorage.getItem("userId")}`,
@@ -274,16 +275,22 @@ export default function VoiceJournal({
             Authorization: `Bearer ${getSession()}`,
             "Content-Type": "application/json",
           },
-        },
+        }
       );
       if (!response.ok) throw new Error("Failed to fetch summary");
       const data = await response.json();
       const [polishedEntry, keyPoints] = data.summary.split("\n\n");
+  
+      // Add note for unauthenticated users
+      const enhancedKeyPoints = !isAuthenticated 
+        ? keyPoints + "\n\nNote: Sign in to save your journal entries and build a collection of memories."
+        : keyPoints;
+  
       setSummary({
         userId: localStorage.getItem("userId") || "",
         date: new Date().toISOString().split("T")[0],
         polishedEntry,
-        keyPoints,
+        keyPoints: enhancedKeyPoints,
         originalEntries: messages
           .filter((msg) => msg.type === "user")
           .map((msg) => msg.content),
@@ -293,7 +300,6 @@ export default function VoiceJournal({
       setError("Failed to fetch summary");
     }
   };
-
   return (
     <div className="h-screen flex flex-col">
       {/* Messages section */}
