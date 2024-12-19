@@ -1,0 +1,270 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Journal Assistant</title>
+        <style>
+            body {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    sans-serif;
+            }
+            #messages {
+                height: 600px;
+                overflow-y: auto;
+                border: 1px solid #e5e7eb;
+                padding: 16px;
+                margin-bottom: 16px;
+                border-radius: 8px;
+                background: #f9fafb;
+            }
+            .message-container {
+                margin-bottom: 16px;
+                display: flex;
+                flex-direction: column;
+            }
+            .message {
+                padding: 12px 16px;
+                border-radius: 12px;
+                max-width: 80%;
+                line-height: 1.5;
+            }
+            .user {
+                background-color: #dbeafe;
+                margin-left: auto;
+                color: #1e40af;
+            }
+            .assistant {
+                background-color: white;
+                margin-right: auto;
+                color: #1f2937;
+                border: 1px solid #e5e7eb;
+            }
+            .error {
+                background-color: #fee2e2;
+                color: #dc2626;
+                margin-right: auto;
+            }
+            .input-container {
+                display: flex;
+                gap: 8px;
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: calc(100% - 40px);
+                max-width: 800px;
+                background: white;
+                padding: 16px;
+                border-top: 1px solid #e5e7eb;
+            }
+            #messageInput {
+                flex-grow: 1;
+                padding: 12px;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                font-size: 16px;
+            }
+            #messageInput:focus {
+                outline: none;
+                border-color: #93c5fd;
+                box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.2);
+            }
+            button {
+                padding: 12px 24px;
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 16px;
+                font-weight: 500;
+                transition: background-color 0.2s;
+            }
+            button:hover {
+                background-color: #1d4ed8;
+            }
+            .typing-indicator {
+                position: relative;
+            }
+            .typing-indicator::after {
+                content: "▋";
+                display: inline-block;
+                animation: blink 1s infinite;
+            }
+            @keyframes blink {
+                0% {
+                    opacity: 1;
+                }
+                50% {
+                    opacity: 0;
+                }
+                100% {
+                    opacity: 1;
+                }
+            }
+            .timestamp {
+                font-size: 12px;
+                color: #6b7280;
+                margin-top: 4px;
+                margin-left: 16px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="messages"></div>
+        <div class="input-container">
+            <input
+                type="text"
+                id="messageInput"
+                placeholder="Type your response..."
+            />
+            <button onclick="sendMessage()">Send</button>
+        </div>
+
+        <script>
+            const ws = new WebSocket("ws://localhost:8000");
+            const messagesDiv = document.getElementById("messages");
+            const messageInput = document.getElementById("messageInput");
+            let userId = null;
+            const messageStore = new Map();
+
+            // Format timestamp
+            function formatTime(timestamp) {
+                return new Date(timestamp).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                });
+            }
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "user" || data.type === "error") {
+                    appendMessage(data);
+                } else if (data.type === "assistant") {
+                    const streamingDiv = document.querySelector(
+                        `[data-message-id="ai-${data.id}"]`,
+                    );
+                    if (streamingDiv) {
+                        streamingDiv.textContent = data.content;
+                        streamingDiv.classList.remove("typing-indicator");
+                    } else {
+                        appendMessage(data);
+                    }
+                } else if ("chunk" in data) {
+                    handleStreamChunk(data);
+                }
+
+                scrollToBottom();
+            };
+
+            function handleStreamChunk(data) {
+                let streamingDiv = document.querySelector(
+                    `[data-message-id="ai-${data.id}"]`,
+                );
+
+                if (!streamingDiv) {
+                    const messageDiv = document.createElement("div");
+                    messageDiv.className = "message-container";
+
+                    streamingDiv = document.createElement("div");
+                    streamingDiv.className =
+                        "message assistant typing-indicator";
+                    streamingDiv.setAttribute(
+                        "data-message-id",
+                        `ai-${data.id}`,
+                    );
+
+                    const timestamp = document.createElement("div");
+                    timestamp.className = "timestamp";
+                    timestamp.textContent = formatTime(data.timestamp);
+
+                    messageDiv.appendChild(streamingDiv);
+                    messageDiv.appendChild(timestamp);
+                    messagesDiv.appendChild(messageDiv);
+
+                    messageStore.set(data.id, "");
+                }
+
+                const currentContent = messageStore.get(data.id) + data.chunk;
+                messageStore.set(data.id, currentContent);
+                streamingDiv.textContent = currentContent;
+            }
+
+            function appendMessage(message) {
+                const messageDiv = document.createElement("div");
+                messageDiv.className = "message-container";
+
+                const contentDiv = document.createElement("div");
+                contentDiv.className = `message ${message.type}`;
+                contentDiv.setAttribute(
+                    "data-message-id",
+                    message.type === "assistant"
+                        ? `ai-${message.id}`
+                        : message.id,
+                );
+                contentDiv.textContent = message.content;
+
+                const timestamp = document.createElement("div");
+                timestamp.className = "timestamp";
+                timestamp.textContent = formatTime(message.timestamp);
+
+                messageDiv.appendChild(contentDiv);
+                messageDiv.appendChild(timestamp);
+                messagesDiv.appendChild(messageDiv);
+            }
+
+            function scrollToBottom() {
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+
+            function sendMessage() {
+                const message = messageInput.value.trim();
+                if (message && ws.readyState === WebSocket.OPEN) {
+                    ws.send(message);
+                    messageInput.value = "";
+                }
+            }
+
+            messageInput.addEventListener("keypress", (e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            // Handle connection states
+            ws.onopen = () => {
+                messageInput.disabled = false;
+                messageInput.placeholder = "Type your response...";
+            };
+
+            ws.onclose = () => {
+                messageInput.disabled = true;
+                messageInput.placeholder =
+                    "Connection lost. Please refresh the page.";
+                appendMessage({
+                    id: "system",
+                    type: "error",
+                    content:
+                        "Connection lost. Please refresh the page to reconnect.",
+                    timestamp: Date.now(),
+                });
+            };
+
+            ws.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                appendMessage({
+                    id: "system",
+                    type: "error",
+                    content: "Connection error. Please refresh the page.",
+                    timestamp: Date.now(),
+                });
+            };
+        </script>
+    </body>
+</html>
