@@ -258,6 +258,13 @@ export default function VoiceJournal({
       stopRecording();
       setPhase("completed");
       setMessage("Recording completed");
+
+      // Send any remaining text
+      if (pendingTextRef.current.trim()) {
+        sendMessage(formatText(pendingTextRef.current));
+        pendingTextRef.current = "";
+        setCurrentText("");
+      }
     }
   };
 
@@ -265,7 +272,7 @@ export default function VoiceJournal({
     const isAuthenticated = !!getSession();
     setShowSummary(true);
     setSummary(null);
-  
+
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/summary?userId=${localStorage.getItem("userId")}`,
@@ -275,17 +282,18 @@ export default function VoiceJournal({
             Authorization: `Bearer ${getSession()}`,
             "Content-Type": "application/json",
           },
-        }
+        },
       );
       if (!response.ok) throw new Error("Failed to fetch summary");
       const data = await response.json();
       const [polishedEntry, keyPoints] = data.summary.split("\n\n");
-  
+
       // Add note for unauthenticated users
-      const enhancedKeyPoints = !isAuthenticated 
-        ? keyPoints + "\n\nNote: Sign in to save your journal entries and build a collection of memories."
+      const enhancedKeyPoints = !isAuthenticated
+        ? keyPoints +
+          "\n\nNote: Sign in to save your journal entries and build a collection of memories."
         : keyPoints;
-  
+
       setSummary({
         userId: localStorage.getItem("userId") || "",
         date: new Date().toISOString().split("T")[0],
