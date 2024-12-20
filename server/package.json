@@ -2,7 +2,7 @@
   "name": "voice-journal-server",
   "version": "1.0.0",
   "scripts": {
-    "start": "node-20 dist/server.js",
+    "start": "node dist/server.js",
     "build": "tsc",
     "dev": "nodemon --exec tsx src/server.ts"
   },
