@@ -254,6 +254,7 @@ export default function VoiceJournal({
   };
 
   const handleDone = () => {
+    console.log(phase, "done");
     if (phase === "recording") {
       stopRecording();
       setPhase("completed");
@@ -308,6 +309,9 @@ export default function VoiceJournal({
       setError("Failed to fetch summary");
     }
   };
+
+  // src/components/VoiceJournal.tsx
+
   return (
     <div className="h-screen flex flex-col">
       {/* Messages section */}
@@ -325,7 +329,6 @@ export default function VoiceJournal({
             </motion.div>
           </AnimatePresence>
 
-          {/* This is where the code goes - replacing the existing message displays */}
           {messages.length > 0 && phase !== "preparing" && (
             <div className="w-full p-4 rounded-lg bg-blue-50">
               <p className="text-gray-600">
@@ -357,6 +360,7 @@ export default function VoiceJournal({
         </div>
       </div>
 
+      {/* Summary button */}
       <div className="p-4 h-[68px] flex justify-center">
         {phase === "completed" && (
           <motion.button
@@ -371,13 +375,11 @@ export default function VoiceJournal({
         )}
       </div>
 
-      {/* Controls section - positioned higher */}
+      {/* Controls section */}
       <div className="pb-6 flex flex-col items-center flex-1">
-        {" "}
-        {/* Reduced pb-12 to pb-6 */}
-        <div className="relative">
+        <div className="relative w-28 h-28">
           <motion.div
-            className="w-28 h-28 rounded-full flex items-center justify-center relative" // Reduced from w-32 h-32 to w-24 h-24
+            className="absolute inset-0 rounded-full"
             style={{
               background:
                 phase === "recording"
@@ -405,33 +407,43 @@ export default function VoiceJournal({
                 />
               </svg>
             )}
-            <button
-              onClick={phase === "recording" ? handleDone : startRecording}
-              disabled={
-                phase === "preparing" || phase === "completed" || modelLoading
-              }
-              className="w-full h-full rounded-full flex items-center justify-center text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-            >
-              {phase === "preparing" ? (
-                <span className="text-lg font-medium">{prepTimeLeft}</span>
-              ) : phase === "recording" ? (
-                <span className="text-lg font-medium">
-                  {recordingTimeLeft > 0 ? `${recordingTimeLeft}s` : "Finish"}
-                </span>
-              ) : phase === "ready" ? (
-                <div className="flex items-center gap-2">
-                  <Mic className="w-6 h-6" />
-                  <span>Start</span>
-                </div>
-              ) : (
-                <Mic className="w-8 h-8" />
-              )}
-            </button>
           </motion.div>
+
+          <button
+            onClick={() => {
+              console.log("Button clicked", phase);
+              if (phase === "recording") {
+                console.log("Stopping recording");
+                handleDone();
+              } else if (phase === "ready") {
+                console.log("Starting recording");
+                startRecording();
+              }
+            }}
+            disabled={
+              phase === "preparing" || phase === "completed" || modelLoading
+            }
+            className="absolute inset-0 rounded-full flex items-center justify-center text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {phase === "preparing" ? (
+              <span className="text-lg font-medium">{prepTimeLeft}</span>
+            ) : phase === "recording" ? (
+              <span className="text-lg font-medium">
+                {recordingTimeLeft > 0 ? `${recordingTimeLeft}s` : "Finish"}
+              </span>
+            ) : phase === "ready" ? (
+              <div className="flex items-center gap-2">
+                <Mic className="w-6 h-6" />
+                <span>Start</span>
+              </div>
+            ) : (
+              <Mic className="w-8 h-8" />
+            )}
+          </button>
         </div>
       </div>
 
-      {/* SlideOver content remains the same */}
+      {/* Summary SlideOver */}
       <SlideOver isOpen={showSummary} onClose={() => setShowSummary(false)}>
         <div className="p-6 space-y-6">
           <div className="flex justify-between items-center">

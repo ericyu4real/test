@@ -79,7 +79,7 @@ app.get("/summaries", async (req, res) => {
 app.post("/summary", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
   const authenticatedUserId = token ? await verifyToken(token) : null;
-  
+
   try {
     const { userId } = req.query;
     const history = getChatHistory(userId as string);
@@ -144,6 +144,7 @@ io.use(async (socket, next) => {
   console.log(token);
   if (!token) {
     // Allow connection without token, but don't set userId
+    socket.data.userId = `temp-${crypto.randomUUID()}`;
     return next();
   }
 
